@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:; img-src 'self' data: file: blob:">
+  <title>Music Player</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- слой обоев: лежит под всем интерфейсом -->
+  <div class="wallpaper" id="wallpaper" aria-hidden="true"></div>
+
+  <div class="app">
+    <!-- Свой верхний бар окна, как в Discord: стрелки назад/вперёд слева, название раздела по центру,
+         свои кнопки окна справа (рисуются в renderer.js). -->
+    <header class="titlebar">
+      <div class="tb-nav">
+        <button class="tb-btn" id="tbBack" title="Назад (Alt+←)" aria-label="Назад" disabled></button>
+        <button class="tb-btn" id="tbForward" title="Вперёд (Alt+→)" aria-label="Вперёд" disabled></button>
+      </div>
+      <div class="tb-title" id="tbTitle"></div>
+      <div class="wc" id="winControls"></div>
+    </header>
+
+    <!-- Левая панель с платформами (на всю высоту под баром) -->
+    <nav class="rail" id="rail"></nav>
+
+    <!-- Верхняя панель + содержимое -->
+    <main class="main">
+      <header class="topbar">
+        <div class="plat-chip" id="title"></div>
+        <div class="tabs" id="tabs"></div>
+        <label class="search" id="searchBox">
+          <span id="searchIcon"></span>
+          <input id="searchInput" type="text" placeholder="Поиск по трекам">
+        </label>
+      </header>
+      <!-- прокручивается вся область; основное полотно (#content) по высоте равно содержимому,
+           поэтому его скруглённый низ уходит за экран вместе с концом списка -->
+      <div class="scroller">
+        <div class="canvas" id="content"></div>
+      </div>
+    </main>
+
+    <!-- Нижний плеер в стиле SoundCloud -->
+    <footer class="player">
+      <div class="transport">
+        <button class="icon-btn" id="prevBtn" title="Назад"></button>
+        <button class="play-btn" id="playBtn" title="Играть"></button>
+        <button class="icon-btn" id="nextBtn" title="Вперёд"></button>
+        <button class="icon-btn" id="shuffleBtn" title="Перемешивание выключено"></button>
+        <button class="icon-btn" id="repeatBtn" title="Повтор выключен"></button>
+      </div>
+
+      <div class="progress">
+        <span id="curTime">0:00</span>
+        <input type="range" id="seek" min="0" max="100" value="0">
+        <span id="durTime">0:00</span>
+      </div>
+
+      <div class="volume">
+        <span id="volIcon"></span>
+        <input type="range" id="vol" min="0" max="100" value="70">
+      </div>
+
+      <div class="np">
+        <div class="np-cover" id="npCover"></div>
+        <div class="np-meta">
+          <div class="np-artist" id="npArtist">Выберите трек</div>
+          <div class="np-title" id="npTitle">Ничего не играет</div>
+          <div class="card-src np-src" id="npSrc"></div>
+        </div>
+        <button class="icon-btn heart" id="likeBtn" title="Нравится"></button>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Окно настроек поверх приложения -->
+  <div class="overlay" id="overlay" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-label="Настройки">
+      <nav class="modal-nav">
+        <label class="nav-search">
+          <span id="navSearchIcon"></span>
+          <input id="settingsSearch" type="text" placeholder="Поиск по настройкам" autocomplete="off">
+        </label>
+        <div class="nav-tree" id="navTree"></div>
+      </nav>
+      <div class="modal-body" id="modalBody"></div>
+      <button class="close" id="closeBtn" title="Закрыть (Esc)" aria-label="Закрыть"></button>
+    </div>
+  </div>
+
+  <script src="icons.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>
