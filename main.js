@@ -87,7 +87,7 @@ function clearWallpaperFiles() {
 }
 
 // Языки интерфейса: каждый файл locales/*.json — отдельный язык { "name", "code", "strings": { "русская фраза": "перевод" } }.
-// Русский встроен в приложение, поэтому файл для него не нужен.
+// Английский встроен в приложение, поэтому файл для него не нужен.
 const LOCALES_DIR = path.join(__dirname, 'locales');
 
 function listLocales() {
@@ -103,7 +103,7 @@ function listLocales() {
       const strings = {};
       for (const [k, v] of Object.entries(raw.strings)) if (typeof v === 'string') strings[k] = v;
       const code = String(raw.code || file.replace(/\.json$/i, '')).trim().slice(0, 20);
-      if (!code || code === 'ru') continue;
+      if (!code || code === 'en') continue;
       out.push({ code, name: String(raw.name || code).slice(0, 40), strings });
     } catch (e) { /* битый файл пропускаем */ }
   }

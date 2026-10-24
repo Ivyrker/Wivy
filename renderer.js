@@ -4,9 +4,9 @@
   const I = window.ICONS;
 
   /* ---------- Язык интерфейса ---------- */
-  // Русский встроен: русские фразы в коде служат ключами. Другие языки — файлы .json в папке locales:
-  // { "name": "English", "code": "en", "strings": { "русская фраза": "перевод" } }. Фраза без перевода остаётся русской.
-  const lang = { code: 'ru', strings: {}, list: [] };
+  // Английский встроен: английские фразы в коде служат ключами. Другие языки — файлы .json в папке locales:
+  // { "name": "Русский", "code": "ru", "strings": { "English phrase": "перевод" } }. Фраза без перевода остаётся английской.
+  const lang = { code: 'en', strings: {}, list: [] };
   const L = (s, ...args) => {
     const v = Object.prototype.hasOwnProperty.call(lang.strings, s) ? lang.strings[s] : s;
     return args.length ? v.replace(/\{(\d+)\}/g, (m, i) => (args[i] !== undefined ? args[i] : m)) : v;
@@ -42,7 +42,7 @@
   }
   function setLanguage(code) {
     const l = lang.list.find((x) => x.code === code);
-    lang.code = l ? l.code : 'ru';
+    lang.code = l ? l.code : 'en';
     lang.strings = l ? l.strings : {};
     document.documentElement.lang = lang.code;
     localize();
@@ -50,7 +50,7 @@
   async function loadLocales() {
     let list = [];
     try { if (window.api && window.api.listLocales) list = await window.api.listLocales(); } catch (e) { list = []; }
-    const seen = new Set(['ru']);
+    const seen = new Set(['en']);
     lang.list = (Array.isArray(list) ? list : []).filter((l) => l && l.code && l.strings && !seen.has(l.code) && seen.add(l.code));
     setLanguage(settings.lang);
   }
@@ -64,18 +64,18 @@
   /* ---------- Платформы ---------- */
   // pastel — цвет отметки на тёмных темах, deep — на светлых и «Пепельной»
   const PLATFORMS = [
-    { id: 'all',        name: 'Все треки',     accent: '#9b8cff', bg: 'linear-gradient(135deg,#7a5cff,#c45cff)', fg: '#ffffff', icon: 'all',
+    { id: 'all',        name: 'All tracks',     accent: '#9b8cff', bg: 'linear-gradient(135deg,#7a5cff,#c45cff)', fg: '#ffffff', icon: 'all',
       tabs: ['home', 'liked', 'playlists'] },
     { id: 'soundcloud', name: 'SoundCloud',    accent: '#ff5500', bg: '#ff5500', fg: '#ffffff', icon: 'soundcloud', pastel: '#ffb38a', deep: '#d4601c',
       tabs: ['home', 'liked', 'playlists', 'following'] },
-    { id: 'vk',         name: 'VK Музыка',     accent: '#2787f5', bg: '#0077ff', fg: '#ffffff', icon: 'vk', pastel: '#9cc7ff', deep: '#2f7be0',
+    { id: 'vk',         name: 'VK Music',     accent: '#2787f5', bg: '#0077ff', fg: '#ffffff', icon: 'vk', pastel: '#9cc7ff', deep: '#2f7be0',
       tabs: ['home', 'liked', 'playlists', 'following'] },
     { id: 'ytmusic',    name: 'YouTube Music', accent: '#ff3d3d', bg: '#e00000', fg: '#ffffff', icon: 'ytmusic', pastel: '#ff9c9c', deep: '#d93a3a',
       tabs: ['home', 'liked', 'playlists', 'following'] },
-    { id: 'yandex',     name: 'Яндекс Музыка', accent: '#ffcc00', bg: '#ffcc00', fg: '#14141a', icon: 'yandex', pastel: '#ffe58a', deep: '#b8900a',
+    { id: 'yandex',     name: 'Yandex Music', accent: '#ffcc00', bg: '#ffcc00', fg: '#14141a', icon: 'yandex', pastel: '#ffe58a', deep: '#b8900a',
       tabs: ['home', 'liked', 'playlists', 'following'] },
   ];
-  const TAB_NAMES = { home: 'Главная', liked: 'Понравившиеся', playlists: 'Плейлисты', following: 'Подписки' };
+  const TAB_NAMES = { home: 'Home', liked: 'Liked', playlists: 'Playlists', following: 'Following' };
   const platform = (id) => PLATFORMS.find((p) => p.id === id);
 
   /* ---------- Цвет ---------- */
@@ -99,22 +99,22 @@
   const fromGray = (t) => mix('#000000', GRAY, t);
 
   const THEMES = {
-    light: { name: 'Светлая',
+    light: { name: 'Light',
       rail: '#eceef2', main: '#fafafc', panel: '#f0f1f5', hover: '#e4e6ec', line: '#dcdee5', text: '#1a1a21', muted: '#6a6a77',
       k: { rail: .28, main: .10, panel: .22, hover: .30, line: .34 } },
-    gray: { name: 'Серая',
+    gray: { name: 'Gray',
       rail: '#c9cacf', main: '#e3e4e8', panel: '#d5d6db', hover: '#c8c9cf', line: '#b9bac1', text: '#1c1c22', muted: '#5a5a66',
       k: { rail: .24, main: .20, panel: .24, hover: .30, line: .32 } },
-    ash: { name: 'Пепельная',            // фон ровно #a7a7a7
+    ash: { name: 'Ash',            // фон ровно #a7a7a7
       rail: '#8c8c8c', main: '#a7a7a7', panel: '#9d9d9d', hover: '#929292', line: '#7f7f7f', text: '#141414', muted: '#323232',
       k: { rail: .20, main: .20, panel: .20, hover: .22, line: .24 } },
-    graphite: { name: 'Графитовая', dark: true, lift: .3,   // фон #5a5a5a
+    graphite: { name: 'Graphite', dark: true, lift: .3,   // фон #5a5a5a
       rail: '#484848', main: '#5a5a5a', panel: '#666666', hover: '#727272', line: '#808080', text: '#f5f5f5', muted: '#dcdcdc',
       k: { rail: .16, main: .16, panel: .18, hover: .20, line: .22 } },
-    dark: { name: 'Тёмная', dark: true, lift: 0,
+    dark: { name: 'Dark', dark: true, lift: 0,
       rail: fromGray(.13), main: fromGray(.18), panel: fromGray(.23), hover: fromGray(.29), line: fromGray(.37), text: '#f2f2f2', muted: GRAY,
       k: { rail: .08, main: .09, panel: .13, hover: .18, line: .20 } },
-    black: { name: 'Чёрная', dark: true, lift: 0,   // настоящий чёрный: фон #000000
+    black: { name: 'Jet black', dark: true, lift: 0,   // настоящий чёрный: фон #000000
       rail: '#000000', main: '#000000', panel: '#0b0b0b', hover: '#171717', line: '#2b2b2b', text: '#f0f0f0', muted: '#9a9a9a',
       k: { rail: .05, main: .05, panel: .08, hover: .12, line: .14 } },
   };
@@ -122,21 +122,21 @@
   const SURFACES = ['rail', 'main', 'panel', 'hover', 'line'];
 
   /* ---------- Цвета: 20 насыщенных оттенков с шагом 18° по кругу ---------- */
-  const TINT_NAMES = ['Коралл', 'Персик', 'Абрикос', 'Лимон', 'Лайм', 'Фисташка', 'Салат', 'Мята', 'Морская пена', 'Аквамарин',
-                      'Бирюза', 'Небо', 'Лазурь', 'Василёк', 'Барвинок', 'Лаванда', 'Орхидея', 'Фуксия', 'Жвачка', 'Роза'];
+  const TINT_NAMES = ['Coral', 'Peach', 'Apricot', 'Lemon', 'Lime', 'Pistachio', 'Lettuce', 'Mint', 'Sea foam', 'Aquamarine',
+                      'Turquoise', 'Sky', 'Azure', 'Cornflower', 'Periwinkle', 'Lavender', 'Orchid', 'Fuchsia', 'Bubblegum', 'Rose'];
   // у жёлто-зелёных оттенков при той же яркости цвет кажется светлее, у синих темнее, поэтому L разная
   const tintL = (h) => (h >= 36 && h <= 180 ? 50 : h > 180 && h <= 260 ? 58 : 54);   // при насыщенности 100% цвета чистые и яркие
   const TINTS = TINT_NAMES.map((name, i) => ({ id: 'c' + i, name, h: i * 18, l: tintL(i * 18) }));
-  const TEXT_FIXED = { white: { name: 'Белый', hex: '#ffffff' }, black: { name: 'Чёрный', hex: '#000000' } };
+  const TEXT_FIXED = { white: { name: 'White', hex: '#ffffff' }, black: { name: 'Black', hex: '#000000' } };
 
   /* ---------- Узоры на панелях (боковая панель, бар окна, плеер) ---------- */
   // каждый узор — маленькая SVG-плитка, цвет берётся из цвета текста темы
   const PATTERNS = {
-    none:    { name: 'Без узора' },
-    dots:    { name: 'Точки', size: 8,  tile: (c, a) => `<circle cx='4' cy='4' r='1' fill='${c}' fill-opacity='${a}'/>` },
-    polka:   { name: 'Крупные точки', size: 16, tile: (c, a) => `<circle cx='8' cy='8' r='2.2' fill='${c}' fill-opacity='${a}'/>` },
-    grid:    { name: 'Сетка', size: 12, tile: (c, a) => `<path d='M0 .5H12M.5 0V12' fill='none' stroke='${c}' stroke-opacity='${a}'/>` },
-    crosses: { name: 'Крестики', size: 16, tile: (c, a) => `<path d='M8 5v6M5 8h6' fill='none' stroke='${c}' stroke-opacity='${a}'/>` },
+    none:    { name: 'No pattern' },
+    dots:    { name: 'Dots', size: 8,  tile: (c, a) => `<circle cx='4' cy='4' r='1' fill='${c}' fill-opacity='${a}'/>` },
+    polka:   { name: 'Large dots', size: 16, tile: (c, a) => `<circle cx='8' cy='8' r='2.2' fill='${c}' fill-opacity='${a}'/>` },
+    grid:    { name: 'Grid', size: 12, tile: (c, a) => `<path d='M0 .5H12M.5 0V12' fill='none' stroke='${c}' stroke-opacity='${a}'/>` },
+    crosses: { name: 'Crosses', size: 16, tile: (c, a) => `<path d='M8 5v6M5 8h6' fill='none' stroke='${c}' stroke-opacity='${a}'/>` },
   };
   const patternCss = (key, color, alpha) => {
     const P = PATTERNS[key];
@@ -148,29 +148,29 @@
 
   /* ---------- Обои: размещение и положение ---------- */
   const WP_FITS = {
-    stretch: { name: 'Растянуть на весь размер (с деформацией)', size: '100% 100%', repeat: 'no-repeat' },
-    contain: { name: 'Вписать целиком (без деформации)',         size: 'contain',   repeat: 'no-repeat' },
-    cover:   { name: 'Заполнить до краёв (с обрезкой)',          size: 'cover',     repeat: 'no-repeat' },
-    center:  { name: 'Оригинальный размер',                      size: 'auto',      repeat: 'no-repeat' },
-    tile:    { name: 'Плиткой',                                  size: 'auto',      repeat: 'repeat' },
+    stretch: { name: 'Stretch to fill (distorts)', size: '100% 100%', repeat: 'no-repeat' },
+    contain: { name: 'Fit inside (no distortion)',         size: 'contain',   repeat: 'no-repeat' },
+    cover:   { name: 'Fill the window (crops)',          size: 'cover',     repeat: 'no-repeat' },
+    center:  { name: 'Original size',                      size: 'auto',      repeat: 'no-repeat' },
+    tile:    { name: 'Tiled',                                  size: 'auto',      repeat: 'repeat' },
   };
   // 3 x 3: углы, края и центр
   const WP_POS = {
-    tl: ['left top', 'Левый верхний угол'],   t: ['center top', 'Верхний край'],     tr: ['right top', 'Правый верхний угол'],
-    l:  ['left center', 'Левый край'],        c: ['center center', 'По центру'],     r:  ['right center', 'Правый край'],
-    bl: ['left bottom', 'Левый нижний угол'], b: ['center bottom', 'Нижний край'],   br: ['right bottom', 'Правый нижний угол'],
+    tl: ['left top', 'Top left corner'],   t: ['center top', 'Top edge'],     tr: ['right top', 'Top right corner'],
+    l:  ['left center', 'Left edge'],        c: ['center center', 'Center'],     r:  ['right center', 'Right edge'],
+    bl: ['left bottom', 'Bottom left corner'], b: ['center bottom', 'Bottom edge'],   br: ['right bottom', 'Bottom right corner'],
   };
   // элементы интерфейса, у которых есть свой ползунок прозрачности
   const OPACITY = [
-    ['aTitle', 'Бар окна'], ['aRail', 'Боковая панель'], ['aMain', 'Фон окна и верхняя панель'],
-    ['aCanvas', 'Основное полотно'], ['aCards', 'Карточки и строки'], ['aControls', 'Кнопки, поля и заголовки'],
-    ['aPlayer', 'Нижний плеер'], ['aModal', 'Окно настроек'], ['aLines', 'Линии и рамки'],
+    ['aTitle', 'Title bar'], ['aRail', 'Side panel'], ['aMain', 'Window background and top bar'],
+    ['aCanvas', 'Main canvas'], ['aCards', 'Cards and rows'], ['aControls', 'Buttons, fields and headings'],
+    ['aPlayer', 'Bottom player'], ['aModal', 'Settings window'], ['aLines', 'Lines and borders'],
   ];
 
   const SOURCE_MODES = {
-    icon:  { name: 'Значок слева',      hint: 'Значок перед обложкой.' },
-    title: { name: 'Значок у названия', hint: 'Маленький значок перед названием.' },
-    label: { name: 'Подпись справа',    hint: 'Название платформы справа.' },
+    icon:  { name: 'Icon on the left',      hint: 'An icon before the cover.' },
+    title: { name: 'Icon by the title', hint: 'A small icon before the title.' },
+    label: { name: 'Label on the right',    hint: 'The platform name on the right.' },
   };
 
   /* ---------- Настройки (сохраняются между запусками) ---------- */
@@ -178,7 +178,7 @@
   // tint — цвет оформления (null = без цвета); textColor — 'auto' | 'white' | 'black' | id оттенка
   const DEFAULTS = {
     theme: 'dark', tint: null, sat: 80, textColor: 'auto', textSat: 70, sourceMode: 'icon',
-    font: 'auto', fontSize: 14, pattern: 'dots', patternAlpha: 70, lang: 'ru', uiScale: 100,
+    font: 'auto', fontSize: 14, pattern: 'dots', patternAlpha: 70, lang: 'en', uiScale: 100,
     aTitle: 100, aRail: 100, aMain: 100, aCanvas: 100, aCards: 100, aControls: 100, aPlayer: 100, aModal: 100, aLines: 100,
     glassBlur: 10, wpFit: 'cover', wpPos: 'c', wpBlur: 0, textOutline: 50,
     bgColor: 'auto', bgSat: 60, outlineColor: 'auto', outlineIcons: true, outlineStyle: 'soft',
@@ -225,7 +225,7 @@
     const p = TINTS.find((x) => x.id === settings.textColor);
     return p ? textHue(p) : null;
   }
-  const textName = () => settings.textColor === 'auto' ? L('Авто')
+  const textName = () => settings.textColor === 'auto' ? L('Auto')
     : TEXT_FIXED[settings.textColor] ? TEXT_FIXED[settings.textColor].name
     : (TINTS.find((x) => x.id === settings.textColor) || {}).name;
 
@@ -470,7 +470,7 @@
     const custom = customText();
     const text = custom || pal.text;
     let muted = custom ? mix(custom, pal.main, 0.4) : pal.muted;
-    if (wallpaper && settings.textOutline > 0) muted = mix(muted, text, 0.45);   // серый текст с обводкой выглядит грязным, поэтому он ближе к обычному
+    if (settings.textOutline > 0) muted = mix(muted, text, 0.45);   // серый текст с обводкой выглядит грязным, поэтому он ближе к обычному
 
     SURFACES.forEach((k) => root.style.setProperty(k === 'line' ? '--line-solid' : '--' + k, pal[k]));
     lineHex = pal.line;
@@ -498,9 +498,9 @@
     if (!wallpaper) { if (root.style.getPropertyValue('--wp-bg') !== 'none') { clearTimeout(wp.timer); wp.seq++; setWpLayers(null, null); } wp.sig = wallpaperSig(); }
     else if (wallpaperSig() !== wp.sig) scheduleWallpaper();
 
-    // обводка текста и значков: только поверх обоев, цвет противоположен цвету текста
+    // обводка текста и значков: работает и с обоями, и без них; цвет противоположен цвету текста
     const o = settings.textOutline / 100;
-    if (wallpaper && o > 0) {
+    if (o > 0) {
       const c = outlineRgb(text);
       if (settings.outlineStyle === 'sharp') {   // чёткая: сплошная тонкая кайма без размытия
         const t = Math.max(1, Math.round(0.5 + o * 1.5));
@@ -535,7 +535,7 @@
         </button>${i === 0 ? '<div class="rail-sep"></div>' : ''}`).join('') +
       `<div class="spacer"></div>
        <div class="rail-sep"></div>
-       <button class="rail-btn settings" data-settings data-tip="${L('Настройки')}" aria-label="${L('Настройки')}">
+       <button class="rail-btn settings" data-settings data-tip="${L('Settings')}" aria-label="${L('Settings')}">
          <span class="badge">${I.settings}</span>
        </button>`;
   }
@@ -636,8 +636,8 @@
       visibleTracks = found;
       el.innerHTML = `
         <div class="section">
-          <div class="section-title">${L('Результаты поиска')}</div>
-          ${found.length ? trackList(found) : `<div class="empty">${L('Ничего не найдено. Попробуйте другое название или исполнителя.')}</div>`}
+          <div class="section-title">${L('Search results')}</div>
+          ${found.length ? trackList(found) : `<div class="empty">${L('Nothing found. Try another title or artist.')}</div>`}
         </div>`;
       return;
     }
@@ -649,34 +649,34 @@
       el.innerHTML = `
         ${state.platform === 'all' ? '' : `
           <div class="notice">
-            <p><b>${L('Демо-данные')}</b>${esc(L('Аккаунт {0} пока не подключён.', platform(state.platform).name))}</p>
-            <button class="btn primary" disabled title="${L('Скоро')}">${L('Подключить аккаунт')}</button>
+            <p><b>${L('Demo data')}</b>${esc(L('The {0} account is not connected yet.', platform(state.platform).name))}</p>
+            <button class="btn primary" disabled title="${L('Soon')}">${L('Connect account')}</button>
           </div>`}
         <div class="section">
-          <div class="section-title">${L('Недавно слушали')}</div>
+          <div class="section-title">${L('Recently played')}</div>
           <div class="grid">${recent.map(trackCard).join('')}</div>
         </div>
-        ${more.length ? `<div class="section"><div class="section-title">${L('Рекомендуем')}</div>${trackList(more)}</div>` : ''}`;
+        ${more.length ? `<div class="section"><div class="section-title">${L('Recommended')}</div>${trackList(more)}</div>` : ''}`;
     } else if (tab === 'liked') {
       visibleTracks = data.liked;
-      el.innerHTML = `<div class="section"><div class="section-title">${L('Понравившиеся')}</div>${trackList(data.liked)}</div>`;
+      el.innerHTML = `<div class="section"><div class="section-title">${L('Liked')}</div>${trackList(data.liked)}</div>`;
     } else if (tab === 'playlists') {
       visibleTracks = [];
       el.innerHTML = `
         <div class="section">
-          <div class="section-title">${L('Плейлисты')}</div>
+          <div class="section-title">${L('Playlists')}</div>
           <div class="grid">${data.playlists.map((pl) => `
             <div class="card">
               <div class="cover" style="background:${cover(pl.name)}"><span class="fab">${I.play}</span></div>
               <div class="card-title"><span class="t-text">${esc(pl.name)}</span></div>
-              <div class="card-sub">${state.platform === 'all' ? esc(platform(pl.source).name) + ', ' : ''}${esc(L('{0} тр.', pl.count))}</div>
+              <div class="card-sub">${state.platform === 'all' ? esc(platform(pl.source).name) + ', ' : ''}${esc(L('{0} tr.', pl.count))}</div>
             </div>`).join('')}</div>
         </div>`;
     } else {
       visibleTracks = [];
       el.innerHTML = `
         <div class="section">
-          <div class="section-title">${L('Подписки')}</div>
+          <div class="section-title">${L('Following')}</div>
           <div class="grid">${data.following.map((name) => `
             <div class="card artist">
               <div class="cover" style="background:${cover(name)}"></div>
@@ -766,101 +766,101 @@
   // дерево разделов слева; у некоторых есть подразделы, как в Discord
   const NAV = [
     { items: [
-      { id: 'accounts', name: 'Аккаунты', icon: 'person', subs: [{ id: 'platforms', name: 'Платформы' }, { id: 'sync', name: 'Синхронизация' }] },
-      { id: 'privacy', name: 'Данные и конфиденциальность', icon: 'shield' },
-      { id: 'notifications', name: 'Уведомления', icon: 'bell' },
+      { id: 'accounts', name: 'Accounts', icon: 'person', subs: [{ id: 'platforms', name: 'Platforms' }, { id: 'sync', name: 'Sync' }] },
+      { id: 'privacy', name: 'Data and privacy', icon: 'shield' },
+      { id: 'notifications', name: 'Notifications', icon: 'bell' },
     ] },
-    { title: 'Приложение', items: [
-      { id: 'playback', name: 'Воспроизведение', icon: 'play' },
-      { id: 'appearance', name: 'Внешний вид', icon: 'palette', subs: [
-        { id: 'theme', name: 'Тема и цвета' }, { id: 'wall', name: 'Обои и прозрачность' },
-        { id: 'font', name: 'Шрифт и размер' }, { id: 'panels', name: 'Панели и отметки' } ] },
-      { id: 'language', name: 'Язык', icon: 'globe' },
-      { id: 'integrations', name: 'Интеграции', icon: 'plug' },
-      { id: 'hotkeys', name: 'Горячие клавиши', icon: 'keyboard' },
+    { title: 'App', items: [
+      { id: 'playback', name: 'Playback', icon: 'play' },
+      { id: 'appearance', name: 'Appearance', icon: 'palette', subs: [
+        { id: 'theme', name: 'Theme and colors' }, { id: 'wall', name: 'Wallpaper and transparency' },
+        { id: 'font', name: 'Font and size' }, { id: 'panels', name: 'Panels and marks' } ] },
+      { id: 'language', name: 'Language', icon: 'globe' },
+      { id: 'integrations', name: 'Integrations', icon: 'plug' },
+      { id: 'hotkeys', name: 'Hotkeys', icon: 'keyboard' },
     ] },
-    { title: 'Справка', items: [
-      { id: 'support', name: 'Поддержать проект', icon: 'heartFill', subs: [{ id: 'author', name: 'Автор' }, { id: 'more', name: 'Другие способы' }] },
-      { id: 'about', name: 'Подробнее', icon: 'info' },
+    { title: 'Help', items: [
+      { id: 'support', name: 'Support the project', icon: 'heartFill', subs: [{ id: 'author', name: 'Author' }, { id: 'more', name: 'Other ways' }] },
+      { id: 'about', name: 'About', icon: 'info' },
     ] },
   ];
 
   // единый список настроек: из него берутся и заголовки на страницах, и поиск
   const DEFS = [
-    { id: 'acc-platforms', section: 'accounts', sub: 'platforms', title: 'Подключённые платформы',
-      desc: 'Привязка аккаунтов SoundCloud, VK Музыки, YouTube Music и Яндекс Музыки. Подключение появится позже.' },
-    { id: 'acc-sync', section: 'accounts', sub: 'sync', title: 'Автообновление библиотеки',
-      desc: 'Подтягивать новые понравившиеся треки и плейлисты в фоне. Появится вместе с подключением аккаунтов.' },
-    { id: 'priv-local', section: 'privacy', sub: null, title: 'Локальные данные',
-      desc: 'Настройки, тема и громкость хранятся только на этом компьютере и никуда не отправляются.' },
-    { id: 'priv-reset', section: 'privacy', sub: null, title: 'Сбросить настройки',
-      desc: 'Вернуть тему, шрифт, уведомления и остальные параметры к значениям по умолчанию.' },
-    { id: 'notif-track', section: 'notifications', sub: null, title: 'Уведомление о смене трека',
-      desc: 'Показывать системное уведомление с названием и исполнителем, когда начинает играть новый трек.' },
-    { id: 'notif-unfocused', section: 'notifications', sub: null, title: 'Только в свёрнутом окне',
-      desc: 'Не показывать уведомления, пока окно приложения активно.' },
-    { id: 'notif-silent', section: 'notifications', sub: null, title: 'Беззвучные уведомления',
-      desc: 'Отключить системный звук при показе уведомления.' },
-    { id: 'notif-test', section: 'notifications', sub: null, title: 'Проверить уведомление',
-      desc: 'Показать тестовое уведомление с текущими настройками.' },
-    { id: 'play-auto', section: 'playback', sub: null, title: 'Автовоспроизведение',
-      desc: 'Сразу включать следующий трек, когда текущий закончился. Если выключить, воспроизведение остановится.' },
-    { id: 'play-volume', section: 'playback', sub: null, title: 'Запоминать громкость',
-      desc: 'Сохранять положение ползунка громкости между запусками.' },
-    { id: 'ap-theme', section: 'appearance', sub: 'theme', title: 'Тема',
-      desc: 'От светлой до тёмной: потяните ползунок или нажмите на название.' },
-    { id: 'ap-tint', section: 'appearance', sub: 'theme', title: 'Цвет оформления',
-      desc: 'Подкрашивает фон и акценты. Без цвета интерфейс остаётся нейтральным, а акцент берётся от платформы.' },
-    { id: 'ap-bg', section: 'appearance', sub: 'theme', title: 'Цвет фона',
-      desc: 'Цвет самого фона: он виден за обоями и под прозрачными панелями, а сами панели не перекрашивает. Насыщенность своя, яркость зависит от темы.' },
-    { id: 'ap-text', section: 'appearance', sub: 'theme', title: 'Цвет текста',
-      desc: 'Основной цвет текста и значков. «Авто» подбирается под тему.' },
-    { id: 'ap-font', section: 'appearance', sub: 'font', title: 'Шрифт',
-      desc: 'Список берётся из папки fonts в папке проекта: положите туда файл или папку со шрифтом, и он появится здесь.' },
-    { id: 'ap-fontsize', section: 'appearance', sub: 'font', title: 'Размер шрифта',
-      desc: 'Базовый размер текста интерфейса, остальные размеры меняются пропорционально.' },
-    { id: 'ap-wallpaper', section: 'appearance', sub: 'wall', title: 'Обои',
-      desc: 'Свой файл картинки для фона приложения (PNG, JPG, WebP, GIF, BMP, AVIF). Файл копируется в папку данных приложения, исходный можно удалить.' },
-    { id: 'ap-wp-fit', section: 'appearance', sub: 'wall', title: 'Размещение обоев',
-      desc: 'Растянуть на весь размер, вписать без деформации, заполнить до краёв с обрезкой, оригинальный размер или плиткой. Ниже положение: углы, края и центр.' },
-    { id: 'ap-wp-blur', section: 'appearance', sub: 'wall', title: 'Размытие обоев',
-      desc: 'Размывает картинку, чтобы текст на ней читался лучше.' },
-    { id: 'ap-glass', section: 'appearance', sub: 'wall', title: 'Эффект стекла',
-      desc: 'Панели слегка размывают и искажают обои под собой. Виден, когда панели полупрозрачны. 0 выключает эффект.' },
-    { id: 'ap-outline', section: 'appearance', sub: 'wall', title: 'Обводка текста и значков',
-      desc: 'Тонкая обводка, чтобы текст и значки не терялись на пёстрых обоях: сила, цвет и применение к значкам. 0 выключает обводку.' },
-    { id: 'ap-opacity', section: 'appearance', sub: 'wall', title: 'Прозрачность элементов',
-      desc: 'Отдельный ползунок для каждого элемента: бар окна, боковая панель, фон окна (с ним общая верхняя панель), основное полотно, карточки и строки, кнопки, поля и заголовки, плеер, окно настроек и линии. Элементы независимы: карточка может быть прозрачной, даже если полотно нет. 100% непрозрачно (так по умолчанию), 0% полностью прозрачно.' },
-    { id: 'ap-pattern', section: 'appearance', sub: 'panels', title: 'Узор на панелях',
-      desc: 'Фоновый узор на боковой панели, верхнем баре и плеере: точки, сетка, крестики или без узора. Ползунок настраивает заметность.' },
-    { id: 'ap-marks', section: 'appearance', sub: 'panels', title: 'Откуда трек',
-      desc: 'Как отмечать платформу у треков в списке «Все треки» и в плеере внизу.' },
-    { id: 'ap-scale', section: 'appearance', sub: 'font', title: 'Масштаб интерфейса',
-      desc: 'Увеличивает или уменьшает весь интерфейс целиком: текст, значки и отступы. Применяется, когда вы отпускаете ползунок. Размер шрифта выше меняет только текст.' },
-    { id: 'lang-select', section: 'language', sub: null, title: 'Язык интерфейса',
-      desc: 'Русский встроен. Остальные языки берутся из файлов .json в папке locales: положите туда файл, нажмите «Обновить список», и язык появится в списке.' },
-    { id: 'lang-custom', section: 'language', sub: null, title: 'Свой перевод',
-      desc: 'Скопируйте en.json, переведите значения справа от двоеточия (русские ключи слева не меняйте), поменяйте name и code и сохраните файл в той же папке. Фразы без перевода остаются на русском.' },
-    { id: 'int-rpc', section: 'integrations', sub: null, title: 'Статус в Discord',
-      desc: 'Показывать в профиле Discord, какой трек сейчас играет.' },
+    { id: 'acc-platforms', section: 'accounts', sub: 'platforms', title: 'Connected platforms',
+      desc: 'Link your SoundCloud, VK Music, YouTube Music and Yandex Music accounts. Connecting will be added later.' },
+    { id: 'acc-sync', section: 'accounts', sub: 'sync', title: 'Library auto-update',
+      desc: 'Fetch new liked tracks and playlists in the background. Arrives together with account connections.' },
+    { id: 'priv-local', section: 'privacy', sub: null, title: 'Local data',
+      desc: 'Settings, theme and volume are stored only on this computer and are never sent anywhere.' },
+    { id: 'priv-reset', section: 'privacy', sub: null, title: 'Reset settings',
+      desc: 'Return the theme, font, notifications and all other options to their defaults.' },
+    { id: 'notif-track', section: 'notifications', sub: null, title: 'Track change notification',
+      desc: 'Show a system notification with the title and artist when a new track starts.' },
+    { id: 'notif-unfocused', section: 'notifications', sub: null, title: 'Only when the window is in the background',
+      desc: 'Do not show notifications while the app window is active.' },
+    { id: 'notif-silent', section: 'notifications', sub: null, title: 'Silent notifications',
+      desc: 'Turn off the system sound when a notification appears.' },
+    { id: 'notif-test', section: 'notifications', sub: null, title: 'Test notification',
+      desc: 'Show a test notification with the current settings.' },
+    { id: 'play-auto', section: 'playback', sub: null, title: 'Autoplay',
+      desc: 'Start the next track as soon as the current one ends. When off, playback stops.' },
+    { id: 'play-volume', section: 'playback', sub: null, title: 'Remember volume',
+      desc: 'Keep the volume slider position between launches.' },
+    { id: 'ap-theme', section: 'appearance', sub: 'theme', title: 'Theme',
+      desc: 'From light to dark: drag the slider or click a name.' },
+    { id: 'ap-tint', section: 'appearance', sub: 'theme', title: 'Accent color',
+      desc: 'Tints the background and accents. With no color the interface stays neutral and the accent comes from the platform.' },
+    { id: 'ap-bg', section: 'appearance', sub: 'theme', title: 'Background color',
+      desc: 'The color of the background itself: it shows behind the wallpaper and under transparent panels, and does not recolor the panels. It has its own saturation, brightness depends on the theme.' },
+    { id: 'ap-text', section: 'appearance', sub: 'theme', title: 'Text color',
+      desc: 'The main color of text and icons. "Auto" follows the theme.' },
+    { id: 'ap-font', section: 'appearance', sub: 'font', title: 'Font',
+      desc: 'The list comes from the fonts folder in the project folder: put a font file or folder there and it will appear here.' },
+    { id: 'ap-fontsize', section: 'appearance', sub: 'font', title: 'Font size',
+      desc: 'The base text size of the interface; other sizes scale proportionally.' },
+    { id: 'ap-wallpaper', section: 'appearance', sub: 'wall', title: 'Wallpaper',
+      desc: 'Your own image file for the app background (PNG, JPG, WebP, GIF, BMP, AVIF). The file is copied to the app data folder, so the original can be deleted.' },
+    { id: 'ap-wp-fit', section: 'appearance', sub: 'wall', title: 'Wallpaper placement',
+      desc: 'Stretch to fill, fit without distortion, fill the window with cropping, original size or tiled. Below is the position: corners, edges and center.' },
+    { id: 'ap-wp-blur', section: 'appearance', sub: 'wall', title: 'Wallpaper blur',
+      desc: 'Blurs the picture so the text on top is easier to read.' },
+    { id: 'ap-glass', section: 'appearance', sub: 'wall', title: 'Glass effect',
+      desc: 'Panels slightly blur and distort the wallpaper under them. Visible when panels are semi-transparent. 0 turns the effect off.' },
+    { id: 'ap-outline', section: 'appearance', sub: 'wall', title: 'Text and icon outline',
+      desc: 'A thin outline so text and icons do not get lost on busy wallpapers: strength, color and whether it applies to icons. 0 turns the outline off.' },
+    { id: 'ap-opacity', section: 'appearance', sub: 'wall', title: 'Element transparency',
+      desc: 'A separate slider for every element: title bar, side panel, window background (the top bar shares it), main canvas, cards and rows, buttons, fields and headings, player, settings window and lines. Elements are independent: a card can be transparent even if the canvas is not. 100% is opaque (the default), 0% is fully transparent.' },
+    { id: 'ap-pattern', section: 'appearance', sub: 'panels', title: 'Panel pattern',
+      desc: 'A background pattern on the side panel, title bar and player: dots, grid, crosses or none. The slider sets how visible it is.' },
+    { id: 'ap-marks', section: 'appearance', sub: 'panels', title: 'Track source',
+      desc: 'How to mark the platform on tracks in "All tracks" and in the player at the bottom.' },
+    { id: 'ap-scale', section: 'appearance', sub: 'font', title: 'Interface scale',
+      desc: 'Enlarges or shrinks the whole interface: text, icons and spacing. Applied when you release the slider. The font size above changes only the text.' },
+    { id: 'lang-select', section: 'language', sub: null, title: 'Interface language',
+      desc: 'English is built in. Other languages come from .json files in the locales folder: put a file there, click "Refresh list" and the language will appear in the list.' },
+    { id: 'lang-custom', section: 'language', sub: null, title: 'Your own translation',
+      desc: 'Copy ru.json, translate the values to the right of the colon (do not change the English keys on the left), change name and code, and save the file in the same folder. Phrases without a translation stay in English.' },
+    { id: 'int-rpc', section: 'integrations', sub: null, title: 'Discord status',
+      desc: 'Show the track that is playing in your Discord profile.' },
     { id: 'int-lastfm', section: 'integrations', sub: null, title: 'Last.fm',
-      desc: 'Отправлять прослушанные треки в Last.fm (скробблинг).' },
-    { id: 'int-media', section: 'integrations', sub: null, title: 'Медиаклавиши и системный плеер',
-      desc: 'Управлять воспроизведением клавишами клавиатуры и из панели Windows.' },
-    { id: 'keys-list', section: 'hotkeys', sub: null, title: 'Горячие клавиши',
-      desc: 'Пробел: пауза и воспроизведение. Alt+← и Alt+→: назад и вперёд по разделам. Esc: закрыть настройки.' },
-    { id: 'sup-author', section: 'support', sub: 'author', title: 'Поддержать автора',
-      desc: 'Если плеер вам полезен, поддержите его развитие: донатом, подпиской или любым другим способом.' },
-    { id: 'sup-share', section: 'support', sub: 'more', title: 'Рассказать друзьям',
-      desc: 'Скопировать короткое сообщение с рекомендацией плеера, чтобы отправить его друзьям.' },
-    { id: 'sup-feedback', section: 'support', sub: 'more', title: 'Идеи и сообщения об ошибках',
-      desc: 'Напишите автору, что улучшить или что работает не так.' },
-    { id: 'about-app', section: 'about', sub: null, title: 'О приложении',
-      desc: 'Music Player: один плеер для SoundCloud, VK Музыки, YouTube Music и Яндекс Музыки.' },
-    { id: 'about-info', section: 'about', sub: null, title: 'Сведения о системе',
-      desc: 'Версии приложения, Electron, Chromium и системы. Скопируйте их и приложите к сообщению об ошибке.' },
-    { id: 'about-fonts', section: 'about', sub: null, title: 'Шрифты и лицензии',
-      desc: 'Встроенные шрифты IBM Plex Mono, Manrope и DotGothic16 распространяются по лицензии SIL Open Font License, тексты лицензий лежат рядом со шрифтами.' },
+      desc: 'Send played tracks to Last.fm (scrobbling).' },
+    { id: 'int-media', section: 'integrations', sub: null, title: 'Media keys and system player',
+      desc: 'Control playback with keyboard keys and from the Windows panel.' },
+    { id: 'keys-list', section: 'hotkeys', sub: null, title: 'Hotkeys',
+      desc: 'Space: pause and play. Alt+← and Alt+→: back and forward through sections. Esc: close settings.' },
+    { id: 'sup-author', section: 'support', sub: 'author', title: 'Support the author',
+      desc: 'If the player is useful to you, support its development: with a donation, a subscription or any other way.' },
+    { id: 'sup-share', section: 'support', sub: 'more', title: 'Tell your friends',
+      desc: 'Copy a short message recommending the player to send to your friends.' },
+    { id: 'sup-feedback', section: 'support', sub: 'more', title: 'Ideas and bug reports',
+      desc: 'Tell the author what to improve or what does not work.' },
+    { id: 'about-app', section: 'about', sub: null, title: 'About the app',
+      desc: 'Music Player: one player for SoundCloud, VK Music, YouTube Music and Yandex Music.' },
+    { id: 'about-info', section: 'about', sub: null, title: 'System information',
+      desc: 'App, Electron, Chromium and system versions. Copy them and attach them to a bug report.' },
+    { id: 'about-fonts', section: 'about', sub: null, title: 'Fonts and licenses',
+      desc: 'The bundled fonts IBM Plex Mono, Manrope and DotGothic16 are distributed under the SIL Open Font License; the license texts are next to the fonts.' },
   ];
   const def = (id) => DEFS.find((d) => d.id === id);
   const secOf = (id) => NAV.flatMap((g) => g.items).find((x) => x.id === id);
@@ -871,7 +871,7 @@
   const switchBtn = (key, on, disabled) =>
     `<button class="switch ${on ? 'on' : ''}" role="switch" aria-checked="${!!on}" data-toggle="${key}" ${disabled ? 'disabled' : ''}><i></i></button>`;
   const toggleRow = (id, key) => `<div class="setting" data-setting="${id}"><div class="setting-row">${head(id)}${switchBtn(key, settings[key], false)}</div></div>`;
-  const soonRow = (id) => `<div class="setting" data-setting="${id}"><div class="setting-row">${head(id)}<span class="soon">${L('Скоро')}</span>${switchBtn('', false, true)}</div></div>`;
+  const soonRow = (id) => `<div class="setting" data-setting="${id}"><div class="setting-row">${head(id)}<span class="soon">${L('Soon')}</span>${switchBtn('', false, true)}</div></div>`;
   const buttonRow = (id, btn) => `<div class="setting" data-setting="${id}"><div class="setting-row">${head(id)}${btn}</div></div>`;
   const infoRow = (id) => `<div class="setting" data-setting="${id}">${head(id)}</div>`;
   const blockRow = (id, body) => `<div class="setting" data-setting="${id}">${head(id)}<div class="setting-body">${body}</div></div>`;
@@ -883,7 +883,7 @@
     return `
       <div class="theme-slider">
         <input type="range" id="themeRange" min="0" max="${THEME_ORDER.length - 1}" step="1" value="${idx}"
-               style="--stops:${themeStops()}" aria-label="${L('Тема')}">
+               style="--stops:${themeStops()}" aria-label="${L('Theme')}">
         <div class="stops">${THEME_ORDER.map((k, i) => `
           <button class="stop ${i === idx ? 'on' : ''}" data-theme-step="${i}"
                   style="left:calc(9px + (100% - 18px) * ${i / (THEME_ORDER.length - 1)})">${THEMES[k].name}</button>`).join('')}
@@ -923,7 +923,7 @@
     return `
       <div class="choices">${Object.keys(PATTERNS).map(patternChoice).join('')}</div>
       <div class="sat ${on ? '' : 'off'}">
-        <label for="patRange">${L('Заметность')}</label>
+        <label for="patRange">${L('Visibility')}</label>
         <input type="range" id="patRange" min="0" max="100" value="${settings.patternAlpha}" ${on ? '' : 'disabled'} style="--from:var(--line);--to:var(--muted)">
         <span class="sat-val" id="patVal">${settings.patternAlpha}%</span>
       </div>`;
@@ -935,7 +935,7 @@
     const to = hue ? hsl(hue.h, 100, hue.l) : '#b0b0b0';
     return `
       <div class="sat ${enabled ? '' : 'off'}">
-        <label for="${inputId}">${L('Насыщенность')}</label>
+        <label for="${inputId}">${L('Saturation')}</label>
         <input type="range" id="${inputId}" min="0" max="100" value="${value}" ${enabled ? '' : 'disabled'} style="--from:${from};--to:${to}">
         <span class="sat-val" id="${valId}">${value}%</span>
       </div>`;
@@ -945,72 +945,72 @@
     const tint = TINTS.find((p) => p.id === settings.tint);
     return `
       <div class="swatches">
-        <button class="swatch none ${settings.tint ? '' : 'sel'}" data-tint="none" title="${L('Без цвета')}" aria-label="${L('Без цвета')}"></button>
+        <button class="swatch none ${settings.tint ? '' : 'sel'}" data-tint="none" title="${L('No color')}" aria-label="${L('No color')}"></button>
         ${TINTS.map((p) => `
           <button class="swatch ${settings.tint === p.id ? 'sel' : ''}" data-tint="${p.id}"
                   style="background:${tintColor(p)}" title="${p.name}" aria-label="${p.name}"></button>`).join('')}
       </div>
-      <div class="swatch-name">${tint ? tint.name : L('Без цвета')}</div>
+      <div class="swatch-name">${tint ? tint.name : L('No color')}</div>
       ${satRow('satRange', 'satVal', settings.sat, tint, !!tint)}
-      <div class="sat-hint">${tint ? '' : L('Выберите цвет, чтобы настроить насыщенность.')}</div>`;
+      <div class="sat-hint">${tint ? '' : L('Pick a color to adjust its saturation.')}</div>`;
   }
 
   function textControls() {
     const hueP = TINTS.find((p) => p.id === settings.textColor);
     return `
       <div class="swatches">
-        <button class="swatch auto ${settings.textColor === 'auto' ? 'sel' : ''}" data-text="auto" title="${L('Авто')}" aria-label="${L('Авто')}"
-                style="color:${THEMES[settings.theme].text}">${L('Аа')}</button>
-        <button class="swatch ${settings.textColor === 'white' ? 'sel' : ''}" data-text="white" title="${L('Белый')}" aria-label="${L('Белый')}" style="background:#ffffff"></button>
-        <button class="swatch ${settings.textColor === 'black' ? 'sel' : ''}" data-text="black" title="${L('Чёрный')}" aria-label="${L('Чёрный')}" style="background:#000000"></button>
+        <button class="swatch auto ${settings.textColor === 'auto' ? 'sel' : ''}" data-text="auto" title="${L('Auto')}" aria-label="${L('Auto')}"
+                style="color:${THEMES[settings.theme].text}">${L('Aa')}</button>
+        <button class="swatch ${settings.textColor === 'white' ? 'sel' : ''}" data-text="white" title="${L('White')}" aria-label="${L('White')}" style="background:#ffffff"></button>
+        <button class="swatch ${settings.textColor === 'black' ? 'sel' : ''}" data-text="black" title="${L('Black')}" aria-label="${L('Black')}" style="background:#000000"></button>
         ${TINTS.map((p) => `
           <button class="swatch ${settings.textColor === p.id ? 'sel' : ''}" data-text="${p.id}"
                   style="background:${textHue(p)}" title="${p.name}" aria-label="${p.name}"></button>`).join('')}
       </div>
       <div class="swatch-name" id="textName">${textName()}</div>
       ${satRow('textSatRange', 'textSatVal', settings.textSat, hueP, !!hueP)}
-      <div class="sat-hint">${hueP ? '' : L('Насыщенность настраивается для цветного текста.')}</div>`;
+      <div class="sat-hint">${hueP ? '' : L('Saturation can be adjusted for colored text.')}</div>`;
   }
 
   // плитки выбора цвета: авто, белый, чёрный и 20 оттенков (для фона и обводки)
   const colorTiles = (attr, current) => `
     <div class="swatches">
-      <button class="swatch auto ${current === 'auto' ? 'sel' : ''}" data-${attr}="auto" title="${L('Авто')}" aria-label="${L('Авто')}" style="color:${THEMES[settings.theme].text}">${L('Аа')}</button>
-      <button class="swatch ${current === 'white' ? 'sel' : ''}" data-${attr}="white" title="${L('Белый')}" aria-label="${L('Белый')}" style="background:#ffffff"></button>
-      <button class="swatch ${current === 'black' ? 'sel' : ''}" data-${attr}="black" title="${L('Чёрный')}" aria-label="${L('Чёрный')}" style="background:#000000"></button>
+      <button class="swatch auto ${current === 'auto' ? 'sel' : ''}" data-${attr}="auto" title="${L('Auto')}" aria-label="${L('Auto')}" style="color:${THEMES[settings.theme].text}">${L('Aa')}</button>
+      <button class="swatch ${current === 'white' ? 'sel' : ''}" data-${attr}="white" title="${L('White')}" aria-label="${L('White')}" style="background:#ffffff"></button>
+      <button class="swatch ${current === 'black' ? 'sel' : ''}" data-${attr}="black" title="${L('Black')}" aria-label="${L('Black')}" style="background:#000000"></button>
       ${TINTS.map((p) => `<button class="swatch ${current === p.id ? 'sel' : ''}" data-${attr}="${p.id}" style="background:${hsl(p.h, 100, 50)}" title="${p.name}" aria-label="${p.name}"></button>`).join('')}
     </div>`;
-  const colorName = (c) => (c === 'auto' ? L('Авто') : TEXT_FIXED[c] ? TEXT_FIXED[c].name : (TINTS.find((x) => x.id === c) || {}).name);
+  const colorName = (c) => (c === 'auto' ? L('Auto') : TEXT_FIXED[c] ? TEXT_FIXED[c].name : (TINTS.find((x) => x.id === c) || {}).name);
 
   const bgControls = () => colorTiles('bg', settings.bgColor) + `<div class="swatch-name">${colorName(settings.bgColor)}</div>`
-    + sliderRow('bgSat', L('Насыщенность'), settings.bgSat, 0, 100, '%');
+    + sliderRow('bgSat', L('Saturation'), settings.bgSat, 0, 100, '%');
 
-  const outlineControls = () => sliderRow('textOutline', L('Сила обводки'), settings.textOutline, 0, 100, '%')
-    + `<div class="btn-row" style="margin-top:14px"><button class="btn ${settings.outlineStyle === 'soft' ? 'primary' : ''}" data-ol-style="soft">${L('Размытая')}</button><button class="btn ${settings.outlineStyle === 'sharp' ? 'primary' : ''}" data-ol-style="sharp">${L('Чёткая')}</button></div>`
-    + `<div class="swatch-name" style="margin-top:14px">${L('Цвет обводки')}</div>` + colorTiles('outline', settings.outlineColor)
+  const outlineControls = () => sliderRow('textOutline', L('Outline strength'), settings.textOutline, 0, 100, '%')
+    + `<div class="btn-row" style="margin-top:14px"><button class="btn ${settings.outlineStyle === 'soft' ? 'primary' : ''}" data-ol-style="soft">${L('Soft')}</button><button class="btn ${settings.outlineStyle === 'sharp' ? 'primary' : ''}" data-ol-style="sharp">${L('Sharp')}</button></div>`
+    + `<div class="swatch-name" style="margin-top:14px">${L('Outline color')}</div>` + colorTiles('outline', settings.outlineColor)
     + `<div class="swatch-name">${colorName(settings.outlineColor)}</div>`
-    + `<div class="setting-row" style="margin-top:12px"><div class="setting-text">${L('Применять к значкам')}</div>${switchBtn('outlineIcons', settings.outlineIcons, false)}</div>`;
+    + `<div class="setting-row" style="margin-top:12px"><div class="setting-text">${L('Apply to icons')}</div>${switchBtn('outlineIcons', settings.outlineIcons, false)}</div>`;
 
   function fontControls() {
     const exists = fonts.list.some((f) => f.family === settings.font);
     const selected = settings.font === 'system' || exists ? settings.font : 'auto';
-    const opts = [['auto', L('Авто (по стилю)')], ['system', L('Системный')], ...fonts.list.map((f) => [f.family, f.family])];
+    const opts = [['auto', L('Auto (by style)')], ['system', L('System font')], ...fonts.list.map((f) => [f.family, f.family])];
     return `
-      <select class="select" id="fontSelect" aria-label="${L('Шрифт')}">
+      <select class="select" id="fontSelect" aria-label="${L('Font')}">
         ${opts.map(([v, n]) => `<option value="${esc(v)}" ${v === selected ? 'selected' : ''}>${esc(n)}</option>`).join('')}
       </select>
-      <p class="font-preview">${L('Съешь ещё этих мягких французских булок, да выпей чаю. The quick brown fox 0123456789')}</p>
+      <p class="font-preview">${L('Pack my box with five dozen liquor jugs. The quick brown fox 0123456789')}</p>
       <div class="btn-row">
-        <button class="btn" data-action="open-fonts">${L('Открыть папку шрифтов')}</button>
-        <button class="btn" data-action="reload-fonts">${L('Обновить список')}</button>
+        <button class="btn" data-action="open-fonts">${L('Open fonts folder')}</button>
+        <button class="btn" data-action="reload-fonts">${L('Refresh list')}</button>
       </div>
-      ${fonts.list.length ? '' : `<p class="setting-desc">${L('Папка fonts не найдена или пуста, пока доступны только системные шрифты.')}</p>`}`;
+      ${fonts.list.length ? '' : `<p class="setting-desc">${L('The fonts folder was not found or is empty, so only system fonts are available.')}</p>`}`;
   }
 
   function fontSizeControls() {
     return `
       <div class="sat">
-        <label for="fsRange">${L('Размер')}</label>
+        <label for="fsRange">${L('Size')}</label>
         <input type="range" id="fsRange" min="12" max="18" step="1" value="${settings.fontSize}" style="--from:var(--line);--to:var(--muted)">
         <span class="sat-val" id="fsVal">${settings.fontSize} px</span>
       </div>`;
@@ -1019,46 +1019,46 @@
   function scaleControls() {
     return `
       <div class="sat">
-        <label for="scaleRange">${L('Масштаб')}</label>
+        <label for="scaleRange">${L('Scale')}</label>
         <input type="range" id="scaleRange" min="75" max="150" step="5" value="${settings.uiScale}" style="--from:var(--line);--to:var(--muted)">
         <span class="sat-val" id="scaleVal">${settings.uiScale}%</span>
       </div>
-      <div class="btn-row"><button class="btn" data-action="scale-reset" ${settings.uiScale === 100 ? 'disabled' : ''}>${L('Сбросить масштаб')}</button></div>`;
+      <div class="btn-row"><button class="btn" data-action="scale-reset" ${settings.uiScale === 100 ? 'disabled' : ''}>${L('Reset scale')}</button></div>`;
   }
 
   function languageControls() {
-    const opts = [{ code: 'ru', name: 'Русский' }, ...lang.list];
+    const opts = [{ code: 'en', name: 'English' }, ...lang.list];
     return `
-      <select class="select" id="langSelect" aria-label="${L('Язык интерфейса')}">
+      <select class="select" id="langSelect" aria-label="${L('Interface language')}">
         ${opts.map((o) => `<option value="${esc(o.code)}" ${o.code === lang.code ? 'selected' : ''}>${esc(o.name)}</option>`).join('')}
       </select>
-      ${lang.list.length ? '' : `<p class="setting-desc">${L('Папка locales не найдена или в ней нет языков, пока доступен только русский.')}</p>`}`;
+      ${lang.list.length ? '' : `<p class="setting-desc">${L('The locales folder was not found or has no languages, so only English is available.')}</p>`}`;
   }
 
   const customLangControls = () => `
     <div class="btn-row" style="margin-top:0">
-      <button class="btn" data-action="open-locales">${L('Открыть папку языков')}</button>
-      <button class="btn" data-action="reload-locales">${L('Обновить список')}</button>
+      <button class="btn" data-action="open-locales">${L('Open languages folder')}</button>
+      <button class="btn" data-action="reload-locales">${L('Refresh list')}</button>
     </div>`;
 
   const platformRows = () => PLATFORMS.filter((p) => p.id !== 'all').map((p) => `
     <div class="row">
       ${badge(p)}
-      <div class="grow">${esc(p.name)}<small>${L('Не подключено')}</small></div>
-      <button class="btn" disabled title="${L('Скоро')}">${L('Подключить')}</button>
+      <div class="grow">${esc(p.name)}<small>${L('Not connected')}</small></div>
+      <button class="btn" disabled title="${L('Soon')}">${L('Connect')}</button>
     </div>`).join('');
 
   const hotkeys = () => `
     <dl class="keys">
-      <div><dt><kbd>${L('Пробел')}</kbd></dt><dd>${L('Пауза и воспроизведение')}</dd></div>
-      <div><dt><kbd>Alt</kbd> + <kbd>←</kbd></dt><dd>${L('Назад по разделам')}</dd></div>
-      <div><dt><kbd>Alt</kbd> + <kbd>→</kbd></dt><dd>${L('Вперёд по разделам')}</dd></div>
-      <div><dt><kbd>Esc</kbd></dt><dd>${L('Закрыть настройки')}</dd></div>
+      <div><dt><kbd>${L('Space')}</kbd></dt><dd>${L('Pause and play')}</dd></div>
+      <div><dt><kbd>Alt</kbd> + <kbd>←</kbd></dt><dd>${L('Back through sections')}</dd></div>
+      <div><dt><kbd>Alt</kbd> + <kbd>→</kbd></dt><dd>${L('Forward through sections')}</dd></div>
+      <div><dt><kbd>Esc</kbd></dt><dd>${L('Close settings')}</dd></div>
     </dl>`;
 
   const versions = () => {
-    const rows = [[L('Версия'), info.version], ['Electron', info.electron], ['Chromium', info.chrome], ['Node.js', info.node],
-                  [L('Система'), info.platform ? `${info.platform} ${info.arch || ''}`.trim() : '']].filter((r) => r[1]);
+    const rows = [[L('Version'), info.version], ['Electron', info.electron], ['Chromium', info.chrome], ['Node.js', info.node],
+                  [L('System'), info.platform ? `${info.platform} ${info.arch || ''}`.trim() : '']].filter((r) => r[1]);
     return rows.length ? `<dl class="meta">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl>` : '';
   };
 
@@ -1069,29 +1069,29 @@
   function supportAuthorHtml() {
     const links = supportCfg.links || [];
     const msg = supportCfg.message ? `<p class="support-msg">${esc(L(supportCfg.message))}</p>` : '';
-    const by = supportCfg.author ? `<p class="setting-desc">${L('Автор:')} ${esc(supportCfg.author)}</p>` : '';
+    const by = supportCfg.author ? `<p class="setting-desc">${L('Author:')} ${esc(supportCfg.author)}</p>` : '';
     const rows = links.length ? links.map((l, i) => `
       <div class="row">
         <span class="badge heart">${I.heartFill}</span>
         <div class="grow">${esc(L(l.title))}<small>${esc(L(l.note))}</small></div>
-        ${l.url ? `<button class="btn primary" data-open="${i}">${L('Открыть')}</button>` : `<span class="soon">${L('Ссылка не задана')}</span>`}
+        ${l.url ? `<button class="btn primary" data-open="${i}">${L('Open')}</button>` : `<span class="soon">${L('Link not set')}</span>`}
       </div>`).join('')
-      : `<p class="setting-desc">${L('Ссылки пока не добавлены: автор может указать их в файле support.json.')}</p>`;
+      : `<p class="setting-desc">${L('No links yet: the author can add them in support.json.')}</p>`;
     return msg + by + rows;
   }
 
   /* --- обои и прозрачность --- */
-  const fmtSize = (n) => (n > 1048576 ? (n / 1048576).toFixed(1) + ' ' + L('МБ') : Math.max(1, Math.round(n / 1024)) + ' ' + L('КБ'));
+  const fmtSize = (n) => (n > 1048576 ? (n / 1048576).toFixed(1) + ' ' + L('MB') : Math.max(1, Math.round(n / 1024)) + ' ' + L('KB'));
 
   function wallpaperControls() {
     return `
       <div class="wp-box">
-        <div class="wp-thumb" id="wpThumb" style="${wallpaper ? `background-image:${esc(`url("${wallpaper.url}")`)}` : ''}">${wallpaper ? '' : L('Нет обоев')}</div>
+        <div class="wp-thumb" id="wpThumb" style="${wallpaper ? `background-image:${esc(`url("${wallpaper.url}")`)}` : ''}">${wallpaper ? '' : L('No wallpaper')}</div>
         <div>
-          <div class="wp-name" id="wpName">${wallpaper ? esc(wallpaper.name) + ', ' + fmtSize(wallpaper.size) : L('Файл не выбран')}</div>
+          <div class="wp-name" id="wpName">${wallpaper ? esc(wallpaper.name) + ', ' + fmtSize(wallpaper.size) : L('No file selected')}</div>
           <div class="btn-row" style="margin-top:0">
-            <button class="btn primary" data-action="wp-pick">${L('Выбрать файл…')}</button>
-            <button class="btn" data-action="wp-clear" ${wallpaper ? '' : 'disabled'}>${L('Убрать обои')}</button>
+            <button class="btn primary" data-action="wp-pick">${L('Choose file…')}</button>
+            <button class="btn" data-action="wp-clear" ${wallpaper ? '' : 'disabled'}>${L('Remove wallpaper')}</button>
           </div>
         </div>
       </div>`;
@@ -1101,12 +1101,12 @@
     const stretch = settings.wpFit === 'stretch';
     return `
       <div class="wp-fit-row">
-        <div class="field"><span>${L('Размещение')}</span>
-          <select class="select" id="wpFit" aria-label="${L('Размещение обоев')}">
+        <div class="field"><span>${L('Placement')}</span>
+          <select class="select" id="wpFit" aria-label="${L('Wallpaper placement')}">
             ${Object.keys(WP_FITS).map((k) => `<option value="${k}" ${settings.wpFit === k ? 'selected' : ''}>${WP_FITS[k].name}</option>`).join('')}
           </select>
         </div>
-        <div class="field"><span>${L('Положение')}</span>
+        <div class="field"><span>${L('Position')}</span>
           <div class="pos-grid ${stretch ? 'off' : ''}" id="posGrid">
             ${Object.keys(WP_POS).map((k) => `<button class="pos ${settings.wpPos === k ? 'sel' : ''}" data-wp-pos="${k}" title="${WP_POS[k][1]}" aria-label="${WP_POS[k][1]}"></button>`).join('')}
           </div>
@@ -1123,7 +1123,7 @@
     </div>`;
 
   const opacityControls = () => OPACITY.map(([k, name]) => sliderRow(k, name, settings[k], 0, 100, '%')).join('')
-    + `<div class="btn-row"><button class="btn" data-action="op-reset">${L('Сделать всё непрозрачным')}</button></div>`;
+    + `<div class="btn-row"><button class="btn" data-action="op-reset">${L('Make everything opaque')}</button></div>`;
 
   function pageHtml(id) {
     const S = secOf(id);
@@ -1135,11 +1135,11 @@
         inner = wrap('platforms', blockRow('acc-platforms', platformRows())) + wrap('sync', soonRow('acc-sync'));
         break;
       case 'privacy':
-        inner = infoRow('priv-local') + buttonRow('priv-reset', `<button class="btn danger" data-action="reset">${L('Сбросить')}</button>`);
+        inner = infoRow('priv-local') + buttonRow('priv-reset', `<button class="btn danger" data-action="reset">${L('Reset')}</button>`);
         break;
       case 'notifications':
         inner = toggleRow('notif-track', 'notifyTrack') + toggleRow('notif-unfocused', 'notifyUnfocused') + toggleRow('notif-silent', 'notifySilent')
-              + buttonRow('notif-test', `<button class="btn" data-action="test-notify">${L('Показать')}</button>`);
+              + buttonRow('notif-test', `<button class="btn" data-action="test-notify">${L('Show')}</button>`);
         break;
       case 'playback':
         inner = toggleRow('play-auto', 'autoplay') + toggleRow('play-volume', 'rememberVolume');
@@ -1147,8 +1147,8 @@
       case 'appearance':
         inner = wrap('theme', blockRow('ap-theme', themeSliderHtml()) + blockRow('ap-tint', tintControls()) + blockRow('ap-bg', bgControls()) + blockRow('ap-text', textControls()))
               + wrap('wall', blockRow('ap-wallpaper', wallpaperControls()) + blockRow('ap-wp-fit', fitControls())
-                           + blockRow('ap-wp-blur', sliderRow('wpBlur', L('Размытие'), settings.wpBlur, 0, 40, ' px'))
-                           + blockRow('ap-glass', sliderRow('glassBlur', L('Сила эффекта'), settings.glassBlur, 0, 24, ' px'))
+                           + blockRow('ap-wp-blur', sliderRow('wpBlur', L('Blur'), settings.wpBlur, 0, 40, ' px'))
+                           + blockRow('ap-glass', sliderRow('glassBlur', L('Effect strength'), settings.glassBlur, 0, 24, ' px'))
                            + blockRow('ap-outline', outlineControls())
                            + blockRow('ap-opacity', opacityControls()))
               + wrap('font', blockRow('ap-font', fontControls()) + blockRow('ap-fontsize', fontSizeControls()) + blockRow('ap-scale', scaleControls()))
@@ -1167,13 +1167,13 @@
       case 'support': {
         const noFeedback = !supportCfg.feedback;
         inner = wrap('author', blockRow('sup-author', supportAuthorHtml()))
-              + wrap('more', buttonRow('sup-share', `<button class="btn" data-action="share">${L('Скопировать')}</button>`)
-                           + buttonRow('sup-feedback', (noFeedback ? `<span class="soon">${L('Ссылка не задана')}</span>` : '')
-                                     + `<button class="btn" data-action="open-feedback" ${noFeedback ? 'disabled' : ''}>${L('Написать')}</button>`));
+              + wrap('more', buttonRow('sup-share', `<button class="btn" data-action="share">${L('Copy text')}</button>`)
+                           + buttonRow('sup-feedback', (noFeedback ? `<span class="soon">${L('Link not set')}</span>` : '')
+                                     + `<button class="btn" data-action="open-feedback" ${noFeedback ? 'disabled' : ''}>${L('Write')}</button>`));
         break;
       }
       case 'about':
-        inner = blockRow('about-app', versions()) + buttonRow('about-info', `<button class="btn" data-action="copy-info">${L('Копировать')}</button>`) + infoRow('about-fonts');
+        inner = blockRow('about-app', versions()) + buttonRow('about-info', `<button class="btn" data-action="copy-info">${L('Copy')}</button>`) + infoRow('about-fonts');
         break;
       default: break;
     }
@@ -1196,13 +1196,13 @@
     const found = DEFS.filter((d) => { const text = (d.title + ' ' + d.desc).toLowerCase(); return terms.every((t) => text.includes(t)); });
     const crumb = (d) => secOf(d.section).name + (d.sub ? ' › ' + subOf(d.section, d.sub).name : '');
     return `
-      <h3 class="set-title">${L('Результаты поиска')}</h3>
+      <h3 class="set-title">${L('Search results')}</h3>
       ${found.length ? found.map((d) => `
         <button class="result" data-goto="${d.id}">
           <span class="crumb">${esc(crumb(d))}</span>
           <span class="r-title">${hl(d.title, terms)}</span>
           <span class="r-desc">${hl(d.desc, terms)}</span>
-        </button>`).join('') : `<div class="empty">${L('Ничего не найдено. Попробуйте другое слово.')}</div>`}`;
+        </button>`).join('') : `<div class="empty">${L('Nothing found. Try another word.')}</div>`}`;
   }
 
   /* --- левая колонка, содержимое и переходы --- */
@@ -1363,8 +1363,8 @@
     if (a === 'reset') {
       if (!btn.dataset.armed) { // сброс подтверждается вторым нажатием
         btn.dataset.armed = '1';
-        btn.textContent = L('Нажмите ещё раз');
-        setTimeout(() => { if (btn.isConnected) { btn.dataset.armed = ''; btn.textContent = L('Сбросить'); } }, 3000);
+        btn.textContent = L('Click again');
+        setTimeout(() => { if (btn.isConnected) { btn.dataset.armed = ''; btn.textContent = L('Reset'); } }, 3000);
         return;
       }
       await resetSettings();
@@ -1372,13 +1372,13 @@
       notify(current() || DATA.all.liked[0], true);
     } else if (a === 'copy-info') {
       const lines = [`Music Player ${info.version || ''}`.trim(), `Electron ${info.electron || '?'}, Chromium ${info.chrome || '?'}, Node ${info.node || '?'}`,
-                     `${L('Система')}: ${info.platform || '?'} ${info.arch || ''}`.trim(), `${L('Тема')}: ${settings.theme}, ${L('шрифт')}: ${settings.font}, ${settings.fontSize} px`];
-      try { await navigator.clipboard.writeText(lines.join('\n')); btn.textContent = L('Скопировано'); } catch (e) { btn.textContent = L('Не удалось'); }
-      setTimeout(() => { if (btn.isConnected) btn.textContent = L('Копировать'); }, 1500);
+                     `${L('System')}: ${info.platform || '?'} ${info.arch || ''}`.trim(), `${L('Theme')}: ${settings.theme}, ${L('font')}: ${settings.font}, ${settings.fontSize} px`];
+      try { await navigator.clipboard.writeText(lines.join('\n')); btn.textContent = L('Copied'); } catch (e) { btn.textContent = L('Failed'); }
+      setTimeout(() => { if (btn.isConnected) btn.textContent = L('Copy'); }, 1500);
     } else if (a === 'share') {
-      const text = L(supportCfg.share || 'Попробуй Music Player: один плеер для SoundCloud, VK Музыки, YouTube Music и Яндекс Музыки.');
-      try { await navigator.clipboard.writeText(text); btn.textContent = L('Скопировано'); } catch (e) { btn.textContent = L('Не удалось'); }
-      setTimeout(() => { if (btn.isConnected) btn.textContent = L('Скопировать'); }, 1500);
+      const text = L(supportCfg.share || 'Try Music Player: one player for SoundCloud, VK Music, YouTube Music and Yandex Music.');
+      try { await navigator.clipboard.writeText(text); btn.textContent = L('Copied'); } catch (e) { btn.textContent = L('Failed'); }
+      setTimeout(() => { if (btn.isConnected) btn.textContent = L('Copy text'); }, 1500);
     } else if (a === 'open-feedback') {
       openSupportLink(supportCfg.feedback);
     } else if (a === 'wp-pick') {
@@ -1439,7 +1439,7 @@
     });
   }
 
-  const REPEAT_TITLES = { off: 'Повтор выключен', all: 'Повторять плейлист', one: 'Повторять трек' };
+  const REPEAT_TITLES = { off: 'Repeat off', all: 'Repeat playlist', one: 'Repeat track' };
 
   function updatePlayer() {
     const t = current();
@@ -1450,16 +1450,16 @@
     $('npCover').innerHTML = src && mode === 'icon'
       ? `<span class="cover-ico np-ico" style="${srcVars(src)}" title="${esc(src.name)}">${I[src.icon]}</span>` : '';
     $('npTitle').innerHTML = (src && mode === 'title' ? srcIcon(src, 'sm') : '')
-      + `<span class="t-text">${esc(t ? t.title : L('Ничего не играет'))}</span>`;
-    $('npArtist').textContent = t ? t.artist : L('Выберите трек');
+      + `<span class="t-text">${esc(t ? t.title : L('Nothing is playing'))}</span>`;
+    $('npArtist').textContent = t ? t.artist : L('Pick a track');
     $('npSrc').setAttribute('style', src ? srcVars(src) : '');
     $('npSrc').innerHTML = src && mode === 'label' ? `<i class="dot"></i>${esc(src.name)}` : '';
     $('playBtn').innerHTML = player.playing ? I.pause : I.play;
-    $('playBtn').title = L(player.playing ? 'Пауза' : 'Играть');
+    $('playBtn').title = L(player.playing ? 'Pause' : 'Play');
     $('likeBtn').classList.toggle('on', !!t && player.liked.has(t.id));
 
     $('shuffleBtn').classList.toggle('on', player.shuffle);
-    $('shuffleBtn').title = L(player.shuffle ? 'Перемешивание включено' : 'Перемешивание выключено');
+    $('shuffleBtn').title = L(player.shuffle ? 'Shuffle on' : 'Shuffle off');
     $('repeatBtn').classList.toggle('on', player.repeat !== 'off');
     $('repeatBtn').innerHTML = player.repeat === 'one' ? I.repeatOne : I.repeat;
     $('repeatBtn').title = L(REPEAT_TITLES[player.repeat]);
@@ -1764,8 +1764,8 @@
   let winMaxed = false;
   function labelWindowButtons() {
     if (!$('wcMin')) return;
-    const maxText = L(winMaxed ? 'Свернуть в окно' : 'Развернуть');
-    [['wcMin', L('Свернуть')], ['wcMax', maxText], ['wcClose', L('Закрыть')]].forEach(([id, text]) => {
+    const maxText = L(winMaxed ? 'Restore down' : 'Maximize');
+    [['wcMin', L('Minimize')], ['wcMax', maxText], ['wcClose', L('Close')]].forEach(([id, text]) => {
       $(id).title = text;
       $(id).setAttribute('aria-label', text);
     });

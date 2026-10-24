@@ -602,11 +602,12 @@ html.darwin .wc { display: none; } /* на macOS остаются системн
 .nav-item.active { background: var(--hover); color: var(--text); font-weight: 600; }
 
 /* подразделы раскрываются под выбранным разделом, слева вертикальная линия */
-.nav-subs { margin: 2px 0 8px 12px; padding: 3px; border: 1px solid var(--line); border-radius: var(--r-2); box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text) 10%, transparent); }
+/* подсписок, как в Discord: тонкая линия слева, а у выбранного подраздела она яркая */
+.nav-subs { margin: 2px 0 8px 21px; border: 0; border-left: 2px solid var(--line); outline: 0; box-shadow: none; }
 .nav-sub { position: relative; display: block; width: 100%; padding: 6px 12px; text-align: left; color: var(--muted); }
 .nav-sub:hover { color: var(--text); }
 .nav-sub.active { color: var(--text); font-weight: 700; }
-.nav-sub.active::before { content: none; }   /* без линий и отметок: активный подраздел виден по цвету и жирности */
+.nav-sub.active::before { content: ""; position: absolute; left: -2px; top: 3px; bottom: 3px; width: 2px; border-radius: 2px; background: var(--text); }
 
 /* ---------- Окно настроек: содержимое ---------- */
 .sub { margin-bottom: 36px; }
@@ -693,7 +694,7 @@ kbd { padding: 2px 8px; border: 1px solid var(--line); border-radius: var(--r-1)
    а под ним ровный цвет окна (--base). Поэтому ползунок прозрачности любой панели работает сам по себе:
    карточка может стать полностью прозрачной, даже если основное полотно непрозрачно. */
 .canvas, .card, .notice, .row, .result, .btn, .tab, .plat-chip, .section-title, .search, .nav-search,
-.select, .font-preview, kbd, .modal, .modal-nav, .nav-subs, .track:hover {
+.select, .font-preview, kbd, .modal, .modal-nav, .track:hover {
   background-color: transparent;
   background-image: linear-gradient(var(--tint), var(--tint)), var(--wp-glass), var(--base);
   background-attachment: scroll, fixed, fixed;
@@ -718,7 +719,7 @@ kbd { padding: 2px 8px; border: 1px solid var(--line); border-radius: var(--r-1)
 .canvas, .tab.active { --tint: var(--canvas-tint); }
 .card, .notice, .row, .result { --tint: var(--cards-tint); }
 .card:hover, .result:hover, .track:hover { --tint: var(--cards-tint-hover); }
-.btn, .tab, .plat-chip, .section-title, .font-preview, kbd, .nav-subs { --tint: var(--controls-tint); }
+.btn, .tab, .plat-chip, .section-title, .font-preview, kbd { --tint: var(--controls-tint); }
 .btn:hover:not(:disabled), .tab:hover { --tint: var(--controls-tint-hover); }
 .tab.active:hover { --tint: var(--canvas-tint); }
 .search, .nav-search, .select { --tint: var(--input-tint); }
@@ -985,9 +986,8 @@ svg { filter: var(--ol-icon, none); }
 /* =====================================================================
    Окно настроек: левое меню с рамками и более широкая страница
    ===================================================================== */
-.nav-item { border: 1px solid transparent; }
-.nav-item.active { border-color: var(--line); box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text) 10%, transparent); }
-.nav-sub { border-radius: var(--r-1); }
-.nav-sub:hover { background: var(--hover); }
 /* в широком окне строки настроек не растягиваются на всю ширину: читать их удобнее, как в Discord */
 .modal-body > * { max-width: 900px; }
+
+/* у кнопок, полей и списков браузер сбрасывает text-shadow, поэтому обводка не доставала до текста кнопок (пункты меню, подразделы) */
+button, input, select, textarea { text-shadow: inherit; }
