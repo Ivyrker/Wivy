@@ -991,3 +991,23 @@ svg { filter: var(--ol-icon, none); }
 
 /* у кнопок, полей и списков браузер сбрасывает text-shadow, поэтому обводка не доставала до текста кнопок (пункты меню, подразделы) */
 button, input, select, textarea { text-shadow: inherit; }
+
+/* =====================================================================
+   SoundCloud: плашки, ошибки и поля ввода
+   ===================================================================== */
+.notice .btn-row { margin: 0; flex-shrink: 0; }
+.notice small.err, .row small.err { display: block; margin-top: 4px; color: #ff8a8a; overflow-wrap: anywhere; }
+.field-grid { display: grid; gap: 12px; max-width: 520px; }
+.field { display: grid; gap: 6px; color: var(--muted); font-size: var(--fs-sm); }
+.text-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-2);
+  background: var(--rail);
+  color: var(--text);
+  font: inherit;
+  user-select: text;
+}
+.text-input:focus-visible { outline: none; border-color: var(--muted); }
+.uri { padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-2); background: var(--panel); color: var(--text); font: inherit; user-select: text; overflow-wrap: anywhere; }

@@ -17,6 +17,15 @@ contextBridge.exposeInMainWorld('api', {
   listFonts: () => ipcRenderer.invoke('fonts:list'),
   openFontsFolder: () => ipcRenderer.invoke('fonts:open-folder'),
 
+  // SoundCloud: вход, выход и библиотека (токены остаются в основном процессе)
+  soundcloud: {
+    status: () => ipcRenderer.invoke('sc:status'),
+    login: (mode) => ipcRenderer.invoke('sc:login', mode), // 'web' (окно сайта) или 'api' (официальный API)
+    logout: () => ipcRenderer.invoke('sc:logout'),
+    library: () => ipcRenderer.invoke('sc:library'),
+    saveApi: (cfg) => ipcRenderer.invoke('sc:save-api', cfg),
+  },
+
   // языки интерфейса из локальной папки locales
   listLocales: () => ipcRenderer.invoke('locales:list'),
   openLocalesFolder: () => ipcRenderer.invoke('locales:open-folder'),

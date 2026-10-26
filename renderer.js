@@ -252,71 +252,45 @@
     return out;
   }
 
-  /* ---------- Данные (демо, потом заменим на реальные API) ---------- */
-  const MOCK = {
-    soundcloud: {
-      liked: [
-        ['Night Drive', 'Luna Wave', 204], ['Neon Rain', 'Kito Rae', 187], ['Paper Planes', 'Soft Static', 231],
-        ['Glass Garden', 'Mono Fox', 176], ['Velvet Hours', 'Velvet Echo', 245], ['8-Bit Heart', 'Pixel Heart', 162],
-        ['After Midnight', 'Dusk Club', 219], ['Slow Orbit', 'Nova Lane', 198], ['Cherry Static', 'Soft Static', 173],
-        ['Blue Hour', 'Luna Wave', 256], ['Tape Hiss', 'Mono Fox', 141], ['Last Train Home', 'Dusk Club', 228],
-      ],
-      playlists: [['Ночной город', 24], ['Для работы', 58], ['Phonk & Drift', 31], ['Lo-fi', 112], ['Старое доброе', 40], ['Новые находки', 17]],
-      following: ['Luna Wave', 'Kito Rae', 'Soft Static', 'Mono Fox', 'Velvet Echo', 'Pixel Heart', 'Dusk Club', 'Nova Lane'],
-    },
-    vk: {
-      liked: [
-        ['Вечерний город', 'Северный ветер', 193], ['Танцы на крыше', 'Лето в сети', 208], ['Тихий свет', 'Альма', 221],
-        ['Метро', 'Полночь', 184], ['Снег в апреле', 'Альма', 236], ['Кассета', 'Лето в сети', 167],
-        ['Новый день', 'Северный ветер', 202], ['Дым и неон', 'Полночь', 215],
-      ],
-      playlists: [['Моё', 120], ['Для дороги', 45], ['Тренировка', 33]],
-      following: ['Северный ветер', 'Лето в сети', 'Альма', 'Полночь'],
-    },
-    ytmusic: {
-      liked: [
-        ['Moonlight Loop', 'Aya Sato', 189], ['City Pop Dreams', 'Neon Tokyo', 214], ['Sunset Boulevard', 'The Hollows', 242],
-        ['Chrome Heart', 'Neon Tokyo', 178], ['Quiet Hours', 'Aya Sato', 226], ['Rewind', 'The Hollows', 195],
-        ['Paper Moon', 'Mika Wen', 207], ['Afterglow', 'Mika Wen', 233],
-      ],
-      playlists: [['Supermix', 50], ['Chill', 72], ['Любимое', 64]],
-      following: ['Aya Sato', 'Neon Tokyo', 'The Hollows', 'Mika Wen'],
-    },
-    yandex: {
-      liked: [
-        ['Утренний кофе', 'Мира', 198], ['Дождь за окном', 'Тоня и Лис', 212], ['Зелёный чай', 'Мира', 181],
-        ['Ночной автобус', 'Белый шум', 239], ['Лето внутри', 'Тоня и Лис', 172], ['Радио 404', 'Белый шум', 204],
-        ['Город спит', 'Мира', 226], ['Сквозь стекло', 'Тоня и Лис', 191],
-      ],
-      playlists: [['Плейлист дня', 30], ['Мне нравится', 210], ['Дежавю', 25]],
-      following: ['Мира', 'Тоня и Лис', 'Белый шум'],
-    },
-  };
+  /* ---------- Данные ---------- */
+  // Пока подключён только SoundCloud: его библиотека приходит из основного процесса (soundcloud.js).
+  // У остальных платформ данных нет, поэтому вместо треков показывается плашка «Demo data».
+  const emptyData = () => ({ connected: false, recent: [], recommended: [], liked: [], playlists: [], following: [] });
+  const DATA = {};
+  PLATFORMS.forEach((p) => { DATA[p.id] = emptyData(); });
+  const trackIds = new Map();   // один и тот же трек всегда получает один и тот же внутренний номер
+  let uid = 0;
+  const idFor = (key) => { if (!trackIds.has(key)) trackIds.set(key, ++uid); return trackIds.get(key); };
 
   // по одному элементу из каждого списка по кругу, чтобы «Все треки» выглядели смешанными
   const interleave = (lists) => {
     const out = [];
-    const max = Math.max(...lists.map((l) => l.length));
+    const max = Math.max(0, ...lists.map((l) => l.length));
     for (let i = 0; i < max; i++) lists.forEach((l) => l[i] && out.push(l[i]));
     return out;
   };
 
-  const DATA = {};
-  let uid = 0;
-  PLATFORMS.filter((p) => p.id !== 'all').forEach((p) => {
-    const m = MOCK[p.id];
-    DATA[p.id] = {
-      liked: m.liked.map(([title, artist, dur]) => ({ id: ++uid, title, artist, dur, source: p.id })),
-      playlists: m.playlists.map(([name, count]) => ({ name, count, source: p.id })),
-      following: m.following,
+  // «Все треки» собираются из подключённых платформ
+  function rebuildAll() {
+    const parts = PLATFORMS.filter((p) => p.id !== 'all').map((p) => DATA[p.id]).filter((d) => d.connected);
+    const mix = (key) => interleave(parts.map((d) => d[key]));
+    DATA.all = { connected: parts.length > 0, recent: mix('recent'), recommended: mix('recommended'), liked: mix('liked'), playlists: mix('playlists'), following: mix('following') };
+  }
+
+  function applyLibrary(lib) {
+    const track = (t) => ({ id: idFor('soundcloud:' + t.scId), title: t.title, artist: t.artist, dur: t.dur, art: t.art, url: t.url, source: 'soundcloud' });
+    const tag = (x) => ({ ...x, source: 'soundcloud' });
+    DATA.soundcloud = {
+      connected: true,
+      recent: lib.recent.map(track),
+      recommended: lib.recommended.map(track),
+      liked: lib.liked.map(track),
+      playlists: lib.playlists.map(tag),
+      following: lib.following.map(tag),
     };
-  });
-  const parts = Object.values(DATA);
-  DATA.all = {
-    liked: interleave(parts.map((d) => d.liked)),
-    playlists: interleave(parts.map((d) => d.playlists)),
-    following: [...new Set(parts.flatMap((d) => d.following))],
-  };
+    rebuildAll();
+  }
+  rebuildAll();
 
   /* ---------- Состояние ---------- */
   // у каждой платформы свой выбранный раздел: при переключении платформ они не смешиваются
@@ -343,6 +317,8 @@
     for (const ch of seed) h = (h * 31 + ch.charCodeAt(0)) % 360;
     return `linear-gradient(135deg,hsl(${h} 65% 55%),hsl(${(h + 55) % 360} 65% 28%))`;
   };
+  // настоящая обложка поверх градиента: пока картинка грузится (или её нет), виден градиент
+  const coverBg = (seed, art) => (art ? `url(${art}) center/cover no-repeat, ${cover(seed)}` : cover(seed));
   const current = () => player.queue[player.index];
   const srcVars = (p) => `--p:${p.pastel};--d:${p.deep}`;
   const badge = (p) => `<span class="badge" style="background:${p.bg};color:${p.fg}">${I[p.icon]}</span>`;
@@ -598,7 +574,7 @@
     return `
       <div class="track ${cls} ${current() && current().id === t.id ? 'playing' : ''}" data-track="${t.id}">
         ${mode === 'icon' ? srcIcon(src, '') : ''}
-        <div class="mini" style="background:${cover(t.title + t.artist)}"><span class="ico">${I.play}</span></div>
+        <div class="mini" style="background:${esc(coverBg(t.title + t.artist, t.art))}"><span class="ico">${I.play}</span></div>
         <div class="t-meta">
           <div class="t-title">${mode === 'title' ? srcIcon(src, 'sm') : ''}<span class="t-text">${esc(t.title)}</span></div>
           <div class="t-artist">${esc(t.artist)}</div>
@@ -613,7 +589,7 @@
     const mode = markMode();
     return `
       <div class="card ${mode === 'label' ? 'with-label' : ''}" data-track="${t.id}">
-        <div class="cover" style="background:${cover(t.title + t.artist)}">
+        <div class="cover" style="background:${esc(coverBg(t.title + t.artist, t.art))}">
           ${mode === 'icon' ? `<span class="cover-ico" style="${srcVars(src)}" title="${esc(src.name)}">${I[src.icon]}</span>` : ''}
           <span class="fab">${I.play}</span>
         </div>
@@ -625,14 +601,53 @@
 
   const trackList = (list) => list.map(trackRow).join('');
 
+  // плашка вместо содержимого: платформа не подключена, идёт вход или загрузка
+  function noticeHtml() {
+    const id = state.platform;
+    const isSc = id === 'soundcloud';
+    const text = id === 'all' ? L('No platforms are connected yet.')
+      : isSc && sc.loading ? L('Loading your SoundCloud library…')
+      : L('The {0} account is not connected yet.', platform(id).name);
+    let btn = `<button class="btn primary" disabled title="${L('Soon')}">${L('Connect account')}</button>`;
+    if (id === 'all' || isSc) {
+      if (sc.busy) btn = `<button class="btn primary" disabled>${L('Connecting…')}</button>`;
+      else if (sc.loading) btn = '';
+      else btn = `<button class="btn primary" data-sc="connect">${L(id === 'all' ? 'Connect SoundCloud' : 'Connect account')}</button>`;
+    }
+    const err = sc.error && (id === 'all' || isSc) ? `<small class="err">${esc(sc.error)}</small>` : '';
+    return `<div class="notice"><p><b>${L('Demo data')}</b>${esc(text)}${err}</p>${btn}</div>`;
+  }
+
+  // верхняя строка раздела «Главная» у подключённого SoundCloud: чей аккаунт и кнопки обновления и выхода
+  const accountBar = () => `
+    <div class="notice">
+      <p><b>${esc(sc.user && sc.user.name ? sc.user.name : 'SoundCloud')}</b>${esc(sc.loading ? L('Updating your library…') : L('Library synced with SoundCloud.'))}${sc.error ? `<small class="err">${esc(sc.error)}</small>` : ''}</p>
+      <div class="btn-row">
+        <button class="btn" data-sc="refresh" ${sc.loading ? 'disabled' : ''}>${L('Refresh')}</button>
+        <button class="btn" data-sc="disconnect">${L('Disconnect')}</button>
+      </div>
+    </div>`;
+
+  const emptyHtml = () => `<div class="empty">${L('Nothing here yet.')}</div>`;
+
   function renderContent() {
     const el = $('content');
     const data = DATA[state.platform];
     const q = state.query;
     const tab = curTab();
 
+    // нет подключения: в любом разделе остаётся только плашка
+    if (!data.connected) {
+      visibleTracks = [];
+      el.innerHTML = noticeHtml();
+      return;
+    }
+
     if (q) {
-      const found = data.liked.filter((t) => (t.title + ' ' + t.artist).toLowerCase().includes(q));
+      const seen = new Set();
+      const found = [...data.liked, ...data.recent, ...data.recommended]
+        .filter((t) => !seen.has(t.id) && seen.add(t.id))
+        .filter((t) => (t.title + ' ' + t.artist).toLowerCase().includes(q));
       visibleTracks = found;
       el.innerHTML = `
         <div class="section">
@@ -643,45 +658,39 @@
     }
 
     if (tab === 'home') {
-      visibleTracks = data.liked;
-      const recent = data.liked.slice(0, 6);
-      const more = data.liked.slice(6);
+      const recent = data.recent.slice(0, 6);
+      const more = data.recommended;
+      visibleTracks = recent.concat(more);
       el.innerHTML = `
-        ${state.platform === 'all' ? '' : `
-          <div class="notice">
-            <p><b>${L('Demo data')}</b>${esc(L('The {0} account is not connected yet.', platform(state.platform).name))}</p>
-            <button class="btn primary" disabled title="${L('Soon')}">${L('Connect account')}</button>
-          </div>`}
-        <div class="section">
-          <div class="section-title">${L('Recently played')}</div>
-          <div class="grid">${recent.map(trackCard).join('')}</div>
-        </div>
-        ${more.length ? `<div class="section"><div class="section-title">${L('Recommended')}</div>${trackList(more)}</div>` : ''}`;
+        ${state.platform === 'soundcloud' ? accountBar() : ''}
+        ${recent.length ? `<div class="section"><div class="section-title">${L('Recently played')}</div><div class="grid">${recent.map(trackCard).join('')}</div></div>` : ''}
+        ${more.length ? `<div class="section"><div class="section-title">${L('Recommended')}</div>${trackList(more)}</div>` : ''}
+        ${recent.length || more.length ? '' : emptyHtml()}`;
     } else if (tab === 'liked') {
       visibleTracks = data.liked;
-      el.innerHTML = `<div class="section"><div class="section-title">${L('Liked')}</div>${trackList(data.liked)}</div>`;
+      el.innerHTML = `<div class="section"><div class="section-title">${L('Liked')}</div>${data.liked.length ? trackList(data.liked) : emptyHtml()}</div>`;
     } else if (tab === 'playlists') {
       visibleTracks = [];
       el.innerHTML = `
         <div class="section">
           <div class="section-title">${L('Playlists')}</div>
-          <div class="grid">${data.playlists.map((pl) => `
+          ${data.playlists.length ? `<div class="grid">${data.playlists.map((pl) => `
             <div class="card">
-              <div class="cover" style="background:${cover(pl.name)}"><span class="fab">${I.play}</span></div>
+              <div class="cover" style="background:${esc(coverBg(pl.name, pl.art))}"><span class="fab">${I.play}</span></div>
               <div class="card-title"><span class="t-text">${esc(pl.name)}</span></div>
               <div class="card-sub">${state.platform === 'all' ? esc(platform(pl.source).name) + ', ' : ''}${esc(L('{0} tr.', pl.count))}</div>
-            </div>`).join('')}</div>
+            </div>`).join('')}</div>` : emptyHtml()}
         </div>`;
     } else {
       visibleTracks = [];
       el.innerHTML = `
         <div class="section">
           <div class="section-title">${L('Following')}</div>
-          <div class="grid">${data.following.map((name) => `
+          ${data.following.length ? `<div class="grid">${data.following.map((u) => `
             <div class="card artist">
-              <div class="cover" style="background:${cover(name)}"></div>
-              <div class="card-title"><span class="t-text">${esc(name)}</span></div>
-            </div>`).join('')}</div>
+              <div class="cover" style="background:${esc(coverBg(u.name, u.art))}"></div>
+              <div class="card-title"><span class="t-text">${esc(u.name)}</span></div>
+            </div>`).join('')}</div>` : emptyHtml()}
         </div>`;
     }
   }
@@ -788,7 +797,9 @@
   // единый список настроек: из него берутся и заголовки на страницах, и поиск
   const DEFS = [
     { id: 'acc-platforms', section: 'accounts', sub: 'platforms', title: 'Connected platforms',
-      desc: 'Link your SoundCloud, VK Music, YouTube Music and Yandex Music accounts. Connecting will be added later.' },
+      desc: 'Connect your music accounts. SoundCloud signs in through a window inside the app; VK Music, YouTube Music and Yandex Music will be added later.' },
+    { id: 'acc-sc-api', section: 'accounts', sub: 'platforms', title: 'SoundCloud official API (optional)',
+      desc: 'A backup way to connect if signing in through the window stops working. It needs your own SoundCloud app (Artist Pro): register it at soundcloud.com/you/apps/new, set the redirect URI shown below, and paste its client ID and secret here.' },
     { id: 'acc-sync', section: 'accounts', sub: 'sync', title: 'Library auto-update',
       desc: 'Fetch new liked tracks and playlists in the background. Arrives together with account connections.' },
     { id: 'priv-local', section: 'privacy', sub: null, title: 'Local data',
@@ -1041,12 +1052,39 @@
       <button class="btn" data-action="reload-locales">${L('Refresh list')}</button>
     </div>`;
 
-  const platformRows = () => PLATFORMS.filter((p) => p.id !== 'all').map((p) => `
+  const platformRows = () => PLATFORMS.filter((p) => p.id !== 'all').map((p) => {
+    if (p.id !== 'soundcloud') {
+      return `
     <div class="row">
       ${badge(p)}
       <div class="grow">${esc(p.name)}<small>${L('Not connected')}</small></div>
       <button class="btn" disabled title="${L('Soon')}">${L('Connect')}</button>
-    </div>`).join('');
+    </div>`;
+    }
+    const status = sc.loading ? L('Loading…')
+      : sc.connected ? (sc.user && sc.user.name ? L('Signed in as {0}', sc.user.name) : L('Connected'))
+      : L('Not connected');
+    const btns = sc.connected
+      ? `<button class="btn" data-sc="refresh" ${sc.loading ? 'disabled' : ''}>${L('Refresh')}</button><button class="btn" data-sc="disconnect">${L('Disconnect')}</button>`
+      : `<button class="btn primary" data-sc="connect" ${sc.busy ? 'disabled' : ''}>${sc.busy ? L('Connecting…') : L('Connect')}</button>`;
+    return `
+    <div class="row">
+      ${badge(p)}
+      <div class="grow">${esc(p.name)}<small>${esc(status)}</small>${sc.error ? `<small class="err">${esc(sc.error)}</small>` : ''}</div>
+      <div class="btn-row" style="margin:0">${btns}</div>
+    </div>`;
+  }).join('');
+
+  const scApiControls = () => `
+    <div class="field-grid">
+      <label class="field"><span>${L('Client ID')}</span><input class="text-input" id="scClientId" type="text" autocomplete="off" spellcheck="false" value="${esc(sc.apiCfg.clientId)}"></label>
+      <label class="field"><span>${L('Client secret')}</span><input class="text-input" id="scClientSecret" type="password" autocomplete="off" spellcheck="false" placeholder="${sc.apiCfg.hasSecret ? '••••••••' : ''}"></label>
+      <div class="field"><span>${L('Redirect URI')}</span><code class="uri">${esc(sc.apiCfg.redirectUri)}</code></div>
+    </div>
+    <div class="btn-row">
+      <button class="btn" data-sc="copy-redirect">${L('Copy redirect URI')}</button>
+      <button class="btn" data-sc="connect-api" ${sc.busy ? 'disabled' : ''}>${L('Sign in via browser (official API)')}</button>
+    </div>`;
 
   const hotkeys = () => `
     <dl class="keys">
@@ -1132,7 +1170,7 @@
     let inner = '';
     switch (id) {
       case 'accounts':
-        inner = wrap('platforms', blockRow('acc-platforms', platformRows())) + wrap('sync', soonRow('acc-sync'));
+        inner = wrap('platforms', blockRow('acc-platforms', platformRows()) + blockRow('acc-sc-api', scApiControls())) + wrap('sync', soonRow('acc-sync'));
         break;
       case 'privacy':
         inner = infoRow('priv-local') + buttonRow('priv-reset', `<button class="btn danger" data-action="reset">${L('Reset')}</button>`);
@@ -1369,7 +1407,7 @@
       }
       await resetSettings();
     } else if (a === 'test-notify') {
-      notify(current() || DATA.all.liked[0], true);
+      notify(current() || DATA.all.liked[0] || { title: 'Music Player', artist: L('Test notification') }, true);
     } else if (a === 'copy-info') {
       const lines = [`Music Player ${info.version || ''}`.trim(), `Electron ${info.electron || '?'}, Chromium ${info.chrome || '?'}, Node ${info.node || '?'}`,
                      `${L('System')}: ${info.platform || '?'} ${info.arch || ''}`.trim(), `${L('Theme')}: ${settings.theme}, ${L('font')}: ${settings.font}, ${settings.fontSize} px`];
@@ -1446,7 +1484,7 @@
     // отметка платформы у играющего трека: так же, как на карточках (значок на обложке, у названия или подпись)
     const src = t ? platform(t.source) : null;
     const mode = settings.sourceMode;
-    $('npCover').style.background = t ? cover(t.title + t.artist) : '';
+    $('npCover').style.background = t ? coverBg(t.title + t.artist, t.art) : '';
     $('npCover').innerHTML = src && mode === 'icon'
       ? `<span class="cover-ico np-ico" style="${srcVars(src)}" title="${esc(src.name)}">${I[src.icon]}</span>` : '';
     $('npTitle').innerHTML = (src && mode === 'title' ? srcIcon(src, 'sm') : '')
@@ -1538,6 +1576,117 @@
     playAt(player.queue.findIndex((t) => t.id === id), false);
   }
 
+  /* ---------- SoundCloud ---------- */
+  // Вход и запросы к SoundCloud выполняет основной процесс (soundcloud.js). Сюда приходят только готовые списки.
+  const sc = { connected: false, busy: false, loading: false, error: '', user: null, mode: null,
+               apiCfg: { clientId: '', hasSecret: false, redirectUri: '' } };
+  const SC_CACHE = 'music-player-soundcloud-cache';
+  const scApi = () => (window.api && window.api.soundcloud) || null;
+  const scErrorText = (e) => (e === 'no-keys' ? L('Enter the client ID and secret first.') : String(e || ''));
+
+  function scRerender() {
+    renderContent();
+    const typing = document.activeElement && document.activeElement.matches && document.activeElement.matches('#modalBody input');
+    if (!$('overlay').hidden && ui.section === 'accounts' && !typing) renderBody(true);
+  }
+
+  function scForget() {
+    sc.connected = false;
+    sc.user = null;
+    DATA.soundcloud = emptyData();
+    rebuildAll();
+    try { localStorage.removeItem(SC_CACHE); } catch (e) { /* ничего */ }
+  }
+
+  async function scInit() {
+    const api = scApi();
+    if (!api) return;
+    try {
+      const st = await api.status();
+      sc.apiCfg = { clientId: st.apiClientId || '', hasSecret: !!st.hasSecret, redirectUri: st.redirectUri || '' };
+      sc.connected = !!st.connected;
+      sc.mode = st.mode;
+    } catch (e) { return; }
+    if (!sc.connected) return scRerender();
+    try { // сначала показываем сохранённую копию, чтобы приложение не пустовало, пока грузится свежая библиотека
+      const cached = JSON.parse(localStorage.getItem(SC_CACHE) || 'null');
+      if (cached && Array.isArray(cached.liked) && Array.isArray(cached.recent)) { sc.user = cached.me; applyLibrary(cached); }
+    } catch (e) { /* копии нет */ }
+    scRefresh();
+  }
+
+  async function scRefresh() {
+    const api = scApi();
+    if (!api || sc.loading) return;
+    sc.loading = true;
+    sc.error = '';
+    scRerender();
+    let r;
+    try { r = await api.library(); } catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
+    sc.loading = false;
+    if (r && r.ok) {
+      sc.connected = true;
+      sc.user = r.library.me;
+      applyLibrary(r.library);
+      try { localStorage.setItem(SC_CACHE, JSON.stringify(r.library)); } catch (e) { /* не влезло, не страшно */ }
+    } else if (r && r.auth) {
+      scForget();
+      sc.error = L('Your SoundCloud session expired. Connect again.');
+    } else {
+      sc.error = L('Could not load the library: {0}', scErrorText(r && r.error));
+    }
+    scRerender();
+  }
+
+  async function scConnect(mode) {
+    const api = scApi();
+    if (!api || sc.busy) return;
+    sc.busy = true;
+    sc.error = '';
+    scRerender();
+    let r;
+    try { r = await api.login(mode); } catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
+    sc.busy = false;
+    if (r && r.ok) {
+      sc.connected = true;
+      sc.mode = mode === 'api' ? 'api' : 'web';
+      return scRefresh();
+    }
+    if (r && !r.cancelled) {
+      sc.error = L('Sign-in failed: {0}', scErrorText(r.error));
+      if (mode !== 'api') sc.error += ' ' + L('You can try the official API in Settings → Accounts.');
+    }
+    scRerender();
+  }
+
+  async function scDisconnect() {
+    const api = scApi();
+    if (!api) return;
+    try { await api.logout(); } catch (e) { /* ничего */ }
+    scForget();
+    sc.error = '';
+    scRerender();
+  }
+
+  async function scSaveKeys() {
+    const api = scApi();
+    if (!api) return;
+    try {
+      const st = await api.saveApi({ clientId: $('scClientId').value, clientSecret: $('scClientSecret').value });
+      sc.apiCfg = { clientId: st.apiClientId || '', hasSecret: !!st.hasSecret, redirectUri: st.redirectUri || '' };
+      $('scClientSecret').value = '';
+      $('scClientSecret').placeholder = sc.apiCfg.hasSecret ? '••••••••' : '';
+    } catch (e) { /* ничего */ }
+  }
+
+  function scAction(a) {
+    if (a === 'connect') scConnect('web');
+    else if (a === 'connect-api') scConnect('api');
+    else if (a === 'refresh') scRefresh();
+    else if (a === 'disconnect') scDisconnect();
+    else if (a === 'copy-redirect') { try { navigator.clipboard.writeText(sc.apiCfg.redirectUri); } catch (e) { /* ничего */ } }
+  }
+
   /* ---------- События ---------- */
   $('rail').addEventListener('click', (e) => {
     const btn = e.target.closest('.rail-btn');
@@ -1561,6 +1710,8 @@
   });
 
   $('content').addEventListener('click', (e) => {
+    const scBtn = e.target.closest('[data-sc]');
+    if (scBtn) return scAction(scBtn.dataset.sc);
     const row = e.target.closest('[data-track]');
     if (row) playTrack(Number(row.dataset.track));
   });
@@ -1592,6 +1743,7 @@
 
   // масштаб применяем по отпусканию ползунка: если менять его на лету, ползунок «убегает» из-под курсора
   $('modalBody').addEventListener('change', (e) => {
+    if (e.target.id === 'scClientId' || e.target.id === 'scClientSecret') return scSaveKeys();
     if (e.target.id !== 'scaleRange') return;
     settings.uiScale = Number(e.target.value);
     saveSettings();
@@ -1636,6 +1788,9 @@
 
     const op = t.closest('[data-open]');
     if (op) return openSupportLink((supportCfg.links[Number(op.dataset.open)] || {}).url);
+
+    const scBtn = t.closest('[data-sc]');
+    if (scBtn) return scAction(scBtn.dataset.sc);
 
     const act = t.closest('[data-action]');
     if (act) return runAction(act);
@@ -1817,6 +1972,7 @@
   // сначала подгружаем языки, потом рисуем интерфейс: так при запуске не мелькает русский текст
   const boot = () => { renderWindowControls(); renderAll(); updatePlayer(); };
   loadLocales().then(boot, boot);
+  scInit();
   if (window.api && window.api.appInfo) Promise.resolve(window.api.appInfo()).then((i) => { info = i || {}; }).catch(() => {});
   if (window.api && window.api.getWallpaper) {
     Promise.resolve(window.api.getWallpaper()).then((w) => { wallpaper = w || null; wp.bitmap = null; applyTheme(); }).catch(() => {});

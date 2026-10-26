@@ -141,6 +141,9 @@ function createWindow() {
   win.loadFile('index.html');
 }
 
+// SoundCloud: вход и загрузка библиотеки (подробности в soundcloud.js)
+require('./soundcloud').register(ipcMain, winOf);
+
 /* ---------- Кнопки окна ---------- */
 ipcMain.on('win:minimize', (e) => { const w = winOf(e); if (w) w.minimize(); });
 ipcMain.on('win:toggle-maximize', (e) => {
@@ -214,7 +217,18 @@ ipcMain.handle('app:info', () => ({
 
 app.setAppUserModelId('com.musicplayer.app'); // чтобы Windows показывала значок приложения в панели задач и в уведомлениях
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  // защищённый DNS (DoH), как в браузере: провайдерский DNS может подменять адреса заблокированных сайтов,
+  // и тогда окно приложения видит чужой сертификат (ERR_CERT_COMMON_NAME_INVALID). Если DoH недоступен, остаётся обычный DNS
+  try {
+    app.configureHostResolver({
+      enableBuiltInResolver: true,
+      secureDnsMode: 'automatic',
+      secureDnsServers: ['https://cloudflare-dns.com/dns-query', 'https://dns.google/dns-query'],
+    });
+  } catch (e) { /* ничего */ }
+  createWindow();
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
