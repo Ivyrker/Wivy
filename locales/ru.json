@@ -104,7 +104,6 @@
     "About": "Подробнее",
     "Connected platforms": "Подключённые платформы",
     "Library auto-update": "Автообновление библиотеки",
-    "Fetch new liked tracks and playlists in the background. Arrives together with account connections.": "Подтягивать новые понравившиеся треки и плейлисты в фоне. Появится вместе с подключением аккаунтов.",
     "Local data": "Локальные данные",
     "Settings, theme and volume are stored only on this computer and are never sent anywhere.": "Настройки, тема и громкость хранятся только на этом компьютере и никуда не отправляются.",
     "Reset settings": "Сбросить настройки",
@@ -259,8 +258,6 @@
     "Project page": "Страница проекта",
     "Source code, stars and discussions": "Исходный код, звёзды и обсуждения",
     "Connect your music accounts. SoundCloud signs in through a window inside the app; VK Music, YouTube Music and Yandex Music will be added later.": "Подключите аккаунты музыкальных сервисов. SoundCloud входит через окно внутри приложения; VK Музыка, YouTube Music и Яндекс Музыка появятся позже.",
-    "SoundCloud official API (optional)": "Официальный API SoundCloud (по желанию)",
-    "A backup way to connect if signing in through the window stops working. It needs your own SoundCloud app (Artist Pro): register it at soundcloud.com/you/apps/new, set the redirect URI shown below, and paste its client ID and secret here.": "Запасной способ подключения, если вход через окно перестанет работать. Нужно своё приложение SoundCloud (Artist Pro): зарегистрируйте его на soundcloud.com/you/apps/new, укажите адрес возврата из поля ниже и вставьте сюда его client ID и secret.",
     "No platforms are connected yet.": "Пока не подключена ни одна платформа.",
     "Loading your SoundCloud library…": "Загружаем вашу библиотеку SoundCloud…",
     "Connect SoundCloud": "Подключить SoundCloud",
@@ -276,12 +273,10 @@
     "Could not load the library: {0}": "Не удалось загрузить библиотеку: {0}",
     "Your SoundCloud session expired. Connect again.": "Сессия SoundCloud истекла. Подключитесь заново.",
     "Sign-in failed: {0}": "Не удалось войти: {0}",
-    "You can try the official API in Settings → Accounts.": "Можно попробовать официальный API: Настройки → Аккаунты.",
-    "Enter the client ID and secret first.": "Сначала введите client ID и secret.",
-    "Client ID": "Client ID",
-    "Client secret": "Client secret",
-    "Redirect URI": "Адрес возврата (Redirect URI)",
-    "Copy redirect URI": "Копировать адрес возврата",
-    "Sign in via browser (official API)": "Войти через браузер (официальный API)"
+    "Keeps your library fresh: while the app is open, it checks SoundCloud in the background for new liked tracks, playlists and follows.": "Держит библиотеку свежей: пока приложение открыто, оно в фоне проверяет SoundCloud на новые лайки, плейлисты и подписки.",
+    "Update interval": "Интервал обновления",
+    "How often the app checks SoundCloud for changes.": "Как часто приложение проверяет SoundCloud на изменения.",
+    "Every {0} minutes": "Каждые {0} минут",
+    "Could not play this track: {0}": "Не удалось воспроизвести трек: {0}"
   }
 }

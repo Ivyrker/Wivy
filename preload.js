@@ -20,11 +20,12 @@ contextBridge.exposeInMainWorld('api', {
   // SoundCloud: вход, выход и библиотека (токены остаются в основном процессе)
   soundcloud: {
     status: () => ipcRenderer.invoke('sc:status'),
-    login: (mode) => ipcRenderer.invoke('sc:login', mode), // 'web' (окно сайта) или 'api' (официальный API)
+    login: () => ipcRenderer.invoke('sc:login'),
     logout: () => ipcRenderer.invoke('sc:logout'),
     library: () => ipcRenderer.invoke('sc:library'),
-    saveApi: (cfg) => ipcRenderer.invoke('sc:save-api', cfg),
+    stream: (trackId) => ipcRenderer.invoke('sc:stream', trackId), // ссылка на звук трека
   },
+
 
   // языки интерфейса из локальной папки locales
   listLocales: () => ipcRenderer.invoke('locales:list'),

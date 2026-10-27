@@ -183,12 +183,12 @@
     glassBlur: 10, wpFit: 'cover', wpPos: 'c', wpBlur: 0, textOutline: 50,
     bgColor: 'auto', bgSat: 60, outlineColor: 'auto', outlineIcons: true, outlineStyle: 'soft',
     notifyTrack: false, notifyUnfocused: true, notifySilent: false,
-    autoplay: true, rememberVolume: true, volume: 70,
+    autoplay: true, rememberVolume: true, volume: 70, autoSync: true, syncEvery: 15,
   };
-  const BOOLS = ['notifyTrack', 'notifyUnfocused', 'notifySilent', 'autoplay', 'rememberVolume', 'outlineIcons'];
+  const BOOLS = ['notifyTrack', 'notifyUnfocused', 'notifySilent', 'autoplay', 'rememberVolume', 'outlineIcons', 'autoSync'];
   // числовые настройки и их допустимые границы
   const NUMS = { aTitle: [0, 100], aRail: [0, 100], aMain: [0, 100], aCanvas: [0, 100], aCards: [0, 100],
-                 aPlayer: [0, 100], aModal: [0, 100], aControls: [0, 100], aLines: [0, 100], glassBlur: [0, 24], wpBlur: [0, 40], textOutline: [0, 100], bgSat: [0, 100], uiScale: [75, 150] };
+                 aPlayer: [0, 100], aModal: [0, 100], aControls: [0, 100], aLines: [0, 100], glassBlur: [0, 24], wpBlur: [0, 40], textOutline: [0, 100], bgSat: [0, 100], uiScale: [75, 150], syncEvery: [1, 240] };
   const settings = { ...DEFAULTS };
   try {
     const saved = JSON.parse(localStorage.getItem(STORE_KEY)) || {};
@@ -278,7 +278,7 @@
   }
 
   function applyLibrary(lib) {
-    const track = (t) => ({ id: idFor('soundcloud:' + t.scId), title: t.title, artist: t.artist, dur: t.dur, art: t.art, url: t.url, source: 'soundcloud' });
+    const track = (t) => ({ id: idFor('soundcloud:' + t.scId), scId: t.scId, title: t.title, artist: t.artist, dur: t.dur, art: t.art, url: t.url, source: 'soundcloud' });
     const tag = (x) => ({ ...x, source: 'soundcloud' });
     DATA.soundcloud = {
       connected: true,
@@ -306,7 +306,7 @@
 
   const ui = { section: 'appearance', sub: 'theme', search: '' };
   const player = { queue: [], index: -1, playing: false, elapsed: 0, timer: null, liked: new Set(),
-                   shuffle: false, repeat: 'off', history: [] }; // repeat: off | all | one
+                   shuffle: false, repeat: 'off', history: [], loading: false, error: '' }; // repeat: off | all | one
   let visibleTracks = [];
 
   /* ---------- Хелперы ---------- */
@@ -798,10 +798,10 @@
   const DEFS = [
     { id: 'acc-platforms', section: 'accounts', sub: 'platforms', title: 'Connected platforms',
       desc: 'Connect your music accounts. SoundCloud signs in through a window inside the app; VK Music, YouTube Music and Yandex Music will be added later.' },
-    { id: 'acc-sc-api', section: 'accounts', sub: 'platforms', title: 'SoundCloud official API (optional)',
-      desc: 'A backup way to connect if signing in through the window stops working. It needs your own SoundCloud app (Artist Pro): register it at soundcloud.com/you/apps/new, set the redirect URI shown below, and paste its client ID and secret here.' },
     { id: 'acc-sync', section: 'accounts', sub: 'sync', title: 'Library auto-update',
-      desc: 'Fetch new liked tracks and playlists in the background. Arrives together with account connections.' },
+      desc: 'Keeps your library fresh: while the app is open, it checks SoundCloud in the background for new liked tracks, playlists and follows.' },
+    { id: 'acc-sync-every', section: 'accounts', sub: 'sync', title: 'Update interval',
+      desc: 'How often the app checks SoundCloud for changes.' },
     { id: 'priv-local', section: 'privacy', sub: null, title: 'Local data',
       desc: 'Settings, theme and volume are stored only on this computer and are never sent anywhere.' },
     { id: 'priv-reset', section: 'privacy', sub: null, title: 'Reset settings',
@@ -1075,16 +1075,10 @@
     </div>`;
   }).join('');
 
-  const scApiControls = () => `
-    <div class="field-grid">
-      <label class="field"><span>${L('Client ID')}</span><input class="text-input" id="scClientId" type="text" autocomplete="off" spellcheck="false" value="${esc(sc.apiCfg.clientId)}"></label>
-      <label class="field"><span>${L('Client secret')}</span><input class="text-input" id="scClientSecret" type="password" autocomplete="off" spellcheck="false" placeholder="${sc.apiCfg.hasSecret ? '••••••••' : ''}"></label>
-      <div class="field"><span>${L('Redirect URI')}</span><code class="uri">${esc(sc.apiCfg.redirectUri)}</code></div>
-    </div>
-    <div class="btn-row">
-      <button class="btn" data-sc="copy-redirect">${L('Copy redirect URI')}</button>
-      <button class="btn" data-sc="connect-api" ${sc.busy ? 'disabled' : ''}>${L('Sign in via browser (official API)')}</button>
-    </div>`;
+  const syncControls = () => `
+    <select class="select" id="syncSelect" aria-label="${L('Update interval')}">
+      ${[5, 15, 30, 60].map((m) => `<option value="${m}" ${m === settings.syncEvery ? 'selected' : ''}>${esc(L('Every {0} minutes', m))}</option>`).join('')}
+    </select>`;
 
   const hotkeys = () => `
     <dl class="keys">
@@ -1170,7 +1164,7 @@
     let inner = '';
     switch (id) {
       case 'accounts':
-        inner = wrap('platforms', blockRow('acc-platforms', platformRows()) + blockRow('acc-sc-api', scApiControls())) + wrap('sync', soonRow('acc-sync'));
+        inner = wrap('platforms', blockRow('acc-platforms', platformRows())) + wrap('sync', toggleRow('acc-sync', 'autoSync') + blockRow('acc-sync-every', syncControls()));
         break;
       case 'privacy':
         inner = infoRow('priv-local') + buttonRow('priv-reset', `<button class="btn danger" data-action="reset">${L('Reset')}</button>`);
@@ -1378,6 +1372,7 @@
     wp.bitmap = null;
     $('vol').value = settings.volume;
     setFill($('vol'));
+    audio.volume = settings.volume / 100;
     applyTheme();
     refreshLanguage();
   }
@@ -1489,7 +1484,7 @@
       ? `<span class="cover-ico np-ico" style="${srcVars(src)}" title="${esc(src.name)}">${I[src.icon]}</span>` : '';
     $('npTitle').innerHTML = (src && mode === 'title' ? srcIcon(src, 'sm') : '')
       + `<span class="t-text">${esc(t ? t.title : L('Nothing is playing'))}</span>`;
-    $('npArtist').textContent = t ? t.artist : L('Pick a track');
+    $('npArtist').textContent = !t ? L('Pick a track') : player.error ? player.error : player.loading ? L('Loading…') : t.artist;
     $('npSrc').setAttribute('style', src ? srcVars(src) : '');
     $('npSrc').innerHTML = src && mode === 'label' ? `<i class="dot"></i>${esc(src.name)}` : '';
     $('playBtn').innerHTML = player.playing ? I.pause : I.play;
@@ -1506,17 +1501,6 @@
     markPlaying();
   }
 
-  function startTimer() {
-    clearInterval(player.timer);
-    player.timer = setInterval(() => {
-      const t = current();
-      if (!player.playing || !t) return;
-      player.elapsed += 1;
-      if (player.elapsed >= t.dur) onTrackEnd();
-      else updateProgress();
-    }, 1000);
-  }
-
   function playAt(index, record = true) {
     if (!player.queue.length) return;
     const target = (index + player.queue.length) % player.queue.length;
@@ -1528,14 +1512,17 @@
     player.index = target;
     player.elapsed = 0;
     player.playing = true;
-    startTimer();
-    updatePlayer();
+    if (changed || !audio.getAttribute('src')) loadAudio(current());
+    else { audio.currentTime = 0; audio.play().catch(() => {}); updatePlayer(); }
     if (changed) notify(current(), false);
   }
 
   function toggle() {
     if (!current()) return;
     player.playing = !player.playing;
+    if (!player.playing) audio.pause();
+    else if (audio.getAttribute('src')) audio.play().catch((e) => audioFail(e.message));
+    else loadAudio(current());
     updatePlayer();
   }
 
@@ -1557,12 +1544,13 @@
 
   // трек доиграл сам
   function onTrackEnd() {
-    if (player.repeat === 'one') { player.elapsed = 0; updatePlayer(); return; }
-    if (!settings.autoplay) { player.playing = false; player.elapsed = 0; updatePlayer(); return; }
+    if (player.repeat === 'one') { player.elapsed = 0; audio.currentTime = 0; audio.play().catch(() => {}); updatePlayer(); return; }
+    if (!settings.autoplay) { player.playing = false; player.elapsed = 0; audio.currentTime = 0; updatePlayer(); return; }
     const isLast = player.index === player.queue.length - 1;
     if (isLast && !player.shuffle && player.repeat === 'off') {
       player.playing = false;
       player.elapsed = 0;
+      audio.currentTime = 0;
       updatePlayer();
       return;
     }
@@ -1576,16 +1564,104 @@
     playAt(player.queue.findIndex((t) => t.id === id), false);
   }
 
+  /* ---------- Звук ---------- */
+  // Настоящее воспроизведение: ссылку на звук отдаёт основной процесс, играет обычный <audio>.
+  // Прогресс и конец трека берутся от него же. HLS-треки (редко) играет hls.js, если он установлен.
+  const audio = new Audio();
+  audio.preload = 'auto';
+  let hls = null;
+  let hlsLoader = null;
+  let loadToken = 0;   // ответ про прежний трек не должен перебить новый выбор
+
+  function stopAudio() {
+    if (hls) { hls.destroy(); hls = null; }
+    audio.pause();
+    audio.removeAttribute('src');
+    audio.load();
+  }
+
+  function audioFail(message, auth) {
+    player.loading = false;
+    player.playing = false;
+    player.error = L('Could not play this track: {0}', String(message || ''));
+    if (auth) { scForget(); scSchedule(); scRerender(); }
+    updatePlayer();
+  }
+
+  function loadHlsLib() {
+    if (window.Hls) return Promise.resolve();
+    if (!hlsLoader) {
+      hlsLoader = new Promise((resolve, reject) => {
+        const el = document.createElement('script');
+        el.src = 'node_modules/hls.js/dist/hls.min.js';
+        el.onload = resolve;
+        el.onerror = () => { hlsLoader = null; reject(new Error('hls.js is not installed (run: npm install hls.js)')); };
+        document.head.appendChild(el);
+      });
+    }
+    return hlsLoader;
+  }
+
+  async function attachHls(url, token) {
+    await loadHlsLib();
+    if (token !== loadToken) return;
+    if (!window.Hls.isSupported()) throw new Error('HLS is not supported');
+    hls = new window.Hls();
+    hls.on(window.Hls.Events.ERROR, (_e, d) => { if (d && d.fatal && token === loadToken) audioFail(d.details); });
+    hls.loadSource(url);
+    hls.attachMedia(audio);
+  }
+
+  async function loadAudio(t) {
+    const token = ++loadToken;
+    stopAudio();
+    player.error = '';
+    player.loading = false;
+    const api = scApi();
+    if (!t || !t.scId || !api || !api.stream) return;
+    player.loading = true;
+    updatePlayer();
+    let r;
+    try { r = await api.stream(t.scId); } catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
+    if (token !== loadToken) return;
+    if (!r || !r.ok) return audioFail(r && r.error, r && r.auth);
+    try {
+      if (r.protocol === 'hls') await attachHls(r.url, token);
+      else audio.src = r.url;
+    } catch (e) {
+      if (token === loadToken) audioFail(e.message);
+      return;
+    }
+    if (token !== loadToken) return;
+    player.loading = false;
+    if (player.playing) audio.play().catch((e) => { if (token === loadToken) audioFail(e.message); });
+    updatePlayer();
+  }
+
+  audio.addEventListener('timeupdate', () => {
+    if (!player.playing || player.loading) return;
+    const sec = Math.floor(audio.currentTime);
+    if (sec !== player.elapsed) { player.elapsed = sec; updateProgress(); }
+  });
+  audio.addEventListener('loadedmetadata', () => {   // настоящая длина важнее той, что пришла в списке (у превью она короче)
+    const t = current();
+    if (t && Number.isFinite(audio.duration) && audio.duration > 0) { t.dur = Math.round(audio.duration); updateProgress(); }
+  });
+  audio.addEventListener('ended', () => onTrackEnd());
+  audio.addEventListener('error', () => {
+    if (audio.getAttribute('src')) audioFail(audio.error ? audio.error.message || 'media error' : 'media error');
+  });
+
   /* ---------- SoundCloud ---------- */
   // Вход и запросы к SoundCloud выполняет основной процесс (soundcloud.js). Сюда приходят только готовые списки.
-  const sc = { connected: false, busy: false, loading: false, error: '', user: null, mode: null,
-               apiCfg: { clientId: '', hasSecret: false, redirectUri: '' } };
+  const sc = { connected: false, busy: false, loading: false, syncing: false, error: '', user: null, mode: null, sig: '' };
   const SC_CACHE = 'music-player-soundcloud-cache';
   const scApi = () => (window.api && window.api.soundcloud) || null;
-  const scErrorText = (e) => (e === 'no-keys' ? L('Enter the client ID and secret first.') : String(e || ''));
+  const scErrorText = (e) => String(e || '');
 
   function scRerender() {
     renderContent();
+    markPlaying();
     const typing = document.activeElement && document.activeElement.matches && document.activeElement.matches('#modalBody input');
     if (!$('overlay').hidden && ui.section === 'accounts' && !typing) renderBody(true);
   }
@@ -1603,59 +1679,72 @@
     if (!api) return;
     try {
       const st = await api.status();
-      sc.apiCfg = { clientId: st.apiClientId || '', hasSecret: !!st.hasSecret, redirectUri: st.redirectUri || '' };
       sc.connected = !!st.connected;
       sc.mode = st.mode;
     } catch (e) { return; }
     if (!sc.connected) return scRerender();
     try { // сначала показываем сохранённую копию, чтобы приложение не пустовало, пока грузится свежая библиотека
       const cached = JSON.parse(localStorage.getItem(SC_CACHE) || 'null');
-      if (cached && Array.isArray(cached.liked) && Array.isArray(cached.recent)) { sc.user = cached.me; applyLibrary(cached); }
+      if (cached && Array.isArray(cached.liked) && Array.isArray(cached.recent)) { sc.user = cached.me; applyLibrary(cached); sc.sig = libSig(cached); }
     } catch (e) { /* копии нет */ }
+    scSchedule();
     scRefresh();
   }
 
-  async function scRefresh() {
+  const libSig = (l) => JSON.stringify([l.recent, l.recommended, l.liked, l.playlists, l.following]);
+
+  // quiet = фоновая синхронизация: без «загрузки» на экране, перерисовка только если в библиотеке что-то изменилось
+  async function scRefresh(quiet) {
     const api = scApi();
-    if (!api || sc.loading) return;
-    sc.loading = true;
-    sc.error = '';
-    scRerender();
+    if (!api || sc.loading || sc.syncing) return;
+    if (quiet) sc.syncing = true;
+    else { sc.loading = true; sc.error = ''; scRerender(); }
     let r;
     try { r = await api.library(); } catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
     sc.loading = false;
+    sc.syncing = false;
     if (r && r.ok) {
+      const changed = libSig(r.library) !== sc.sig;
       sc.connected = true;
       sc.user = r.library.me;
-      applyLibrary(r.library);
+      if (changed) { applyLibrary(r.library); sc.sig = libSig(r.library); }
       try { localStorage.setItem(SC_CACHE, JSON.stringify(r.library)); } catch (e) { /* не влезло, не страшно */ }
+      if (changed || !quiet) scRerender();
     } else if (r && r.auth) {
       scForget();
+      scSchedule();
       sc.error = L('Your SoundCloud session expired. Connect again.');
-    } else {
+      scRerender();
+    } else if (!quiet) {
       sc.error = L('Could not load the library: {0}', scErrorText(r && r.error));
+      scRerender();
     }
-    scRerender();
   }
 
-  async function scConnect(mode) {
+  // автосинхронизация: пока приложение открыто, раз в N минут тихо обновляем библиотеку
+  let syncTimer = null;
+  function scSchedule() {
+    clearInterval(syncTimer);
+    syncTimer = null;
+    if (!settings.autoSync || !sc.connected) return;
+    syncTimer = setInterval(() => scRefresh(true), Math.max(1, settings.syncEvery) * 60 * 1000);
+  }
+
+  async function scConnect() {
     const api = scApi();
     if (!api || sc.busy) return;
     sc.busy = true;
     sc.error = '';
     scRerender();
     let r;
-    try { r = await api.login(mode); } catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
+    try { r = await api.login(); } catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
     sc.busy = false;
     if (r && r.ok) {
       sc.connected = true;
-      sc.mode = mode === 'api' ? 'api' : 'web';
+      scSchedule();
       return scRefresh();
     }
-    if (r && !r.cancelled) {
-      sc.error = L('Sign-in failed: {0}', scErrorText(r.error));
-      if (mode !== 'api') sc.error += ' ' + L('You can try the official API in Settings → Accounts.');
-    }
+    if (r && !r.cancelled) sc.error = L('Sign-in failed: {0}', scErrorText(r.error));
     scRerender();
   }
 
@@ -1664,27 +1753,15 @@
     if (!api) return;
     try { await api.logout(); } catch (e) { /* ничего */ }
     scForget();
+    scSchedule();
     sc.error = '';
     scRerender();
   }
 
-  async function scSaveKeys() {
-    const api = scApi();
-    if (!api) return;
-    try {
-      const st = await api.saveApi({ clientId: $('scClientId').value, clientSecret: $('scClientSecret').value });
-      sc.apiCfg = { clientId: st.apiClientId || '', hasSecret: !!st.hasSecret, redirectUri: st.redirectUri || '' };
-      $('scClientSecret').value = '';
-      $('scClientSecret').placeholder = sc.apiCfg.hasSecret ? '••••••••' : '';
-    } catch (e) { /* ничего */ }
-  }
-
   function scAction(a) {
-    if (a === 'connect') scConnect('web');
-    else if (a === 'connect-api') scConnect('api');
+    if (a === 'connect') scConnect();
     else if (a === 'refresh') scRefresh();
     else if (a === 'disconnect') scDisconnect();
-    else if (a === 'copy-redirect') { try { navigator.clipboard.writeText(sc.apiCfg.redirectUri); } catch (e) { /* ничего */ } }
   }
 
   /* ---------- События ---------- */
@@ -1743,7 +1820,6 @@
 
   // масштаб применяем по отпусканию ползунка: если менять его на лету, ползунок «убегает» из-под курсора
   $('modalBody').addEventListener('change', (e) => {
-    if (e.target.id === 'scClientId' || e.target.id === 'scClientSecret') return scSaveKeys();
     if (e.target.id !== 'scaleRange') return;
     settings.uiScale = Number(e.target.value);
     saveSettings();
@@ -1773,6 +1849,7 @@
       sw.classList.toggle('on', settings[key]);
       sw.setAttribute('aria-checked', String(settings[key]));
       if (key === 'outlineIcons') applyTheme();
+      if (key === 'autoSync') scSchedule();
       if (key === 'notifyTrack' && settings.notifyTrack && window.Notification && Notification.permission === 'default') Notification.requestPermission();
       return;
     }
@@ -1854,6 +1931,11 @@
       saveSettings();
       applyTheme();
       return;
+    } else if (id === 'syncSelect') {
+      settings.syncEvery = Number(e.target.value);
+      saveSettings();
+      scSchedule();
+      return;
     } else if (id === 'langSelect') {
       settings.lang = e.target.value;
       saveSettings();
@@ -1889,9 +1971,10 @@
 
   $('seek').addEventListener('input', (e) => {
     player.elapsed = Number(e.target.value);
+    audio.currentTime = player.elapsed;
     updateProgress();
   });
-  $('vol').addEventListener('input', (e) => { setFill(e.target); settings.volume = Number(e.target.value); saveSettings(); });
+  $('vol').addEventListener('input', (e) => { setFill(e.target); settings.volume = Number(e.target.value); audio.volume = settings.volume / 100; saveSettings(); });
 
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !$('overlay').hidden) {
@@ -1967,6 +2050,7 @@
   $('playBtn').innerHTML = I.play;
   if (settings.rememberVolume) $('vol').value = settings.volume;
   setFill($('vol'));
+  audio.volume = Number($('vol').value) / 100;
   collectStatic();
   applyScale();
   // сначала подгружаем языки, потом рисуем интерфейс: так при запуске не мелькает русский текст
