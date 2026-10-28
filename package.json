@@ -8,6 +8,9 @@
   "author": "",
   "license": "ISC",
   "type": "commonjs",
+  "dependencies": {
+    "hls.js": "^1.6.0"
+  },
   "devDependencies": {
     "electron": "^44.9.0"
   }

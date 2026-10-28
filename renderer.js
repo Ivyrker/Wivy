@@ -277,8 +277,12 @@
     DATA.all = { connected: parts.length > 0, recent: mix('recent'), recommended: mix('recommended'), liked: mix('liked'), playlists: mix('playlists'), following: mix('following') };
   }
 
+  // трек и остальные объекты берут все поля, что прислал основной процесс (исполнитель, счётчики, дата…)
+  const mapTrack = (t) => ({ ...t, id: idFor('soundcloud:' + t.scId), source: 'soundcloud' });
+  const mapEntity = (x) => ({ ...x, source: 'soundcloud' });
+
   function applyLibrary(lib) {
-    const track = (t) => ({ id: idFor('soundcloud:' + t.scId), scId: t.scId, title: t.title, artist: t.artist, dur: t.dur, art: t.art, url: t.url, source: 'soundcloud' });
+    const track = mapTrack;
     const tag = (x) => ({ ...x, source: 'soundcloud' });
     DATA.soundcloud = {
       connected: true,
@@ -298,6 +302,8 @@
     platform: 'soundcloud',
     tabs: Object.fromEntries(PLATFORMS.map((p) => [p.id, 'home'])),
     query: '',
+    view: null,            // открытая страница: { kind: 'track' | 'artist' | 'playlist', src, id, url } или null
+    expanded: new Set(),   // раскрытые списки «Показать ещё» на странице
   };
   const curTab = () => state.tabs[state.platform];
 
@@ -556,7 +562,7 @@
 
   function renderTitlebar() {
     const p = platform(state.platform);
-    $('tbTitle').innerHTML = `<span class="tb-ico">${I[p.icon]}</span><span>${esc(p.name)}</span><span class="tb-tab">${TAB_NAMES[curTab()]}</span>`;
+    $('tbTitle').innerHTML = `<span class="tb-ico">${I[p.icon]}</span><span>${esc(p.name)}</span><span class="tb-tab">${esc(viewTitle() || TAB_NAMES[curTab()])}</span>`;
     $('tbBack').disabled = nav.pos === 0;
     $('tbForward').disabled = nav.pos >= nav.stack.length - 1;
   }
@@ -576,8 +582,8 @@
         ${mode === 'icon' ? srcIcon(src, '') : ''}
         <div class="mini" style="background:${esc(coverBg(t.title + t.artist, t.art))}"><span class="ico">${I.play}</span></div>
         <div class="t-meta">
-          <div class="t-title">${mode === 'title' ? srcIcon(src, 'sm') : ''}<span class="t-text">${esc(t.title)}</span></div>
-          <div class="t-artist">${esc(t.artist)}</div>
+          <div class="t-title">${mode === 'title' ? srcIcon(src, 'sm') : ''}${titleLink(t)}</div>
+          <div class="t-artist">${artistLink(t)}</div>
         </div>
         ${mode === 'label' ? `<div class="src" style="${srcVars(src)}"><i class="dot"></i>${esc(src.name)}</div>` : ''}
         <div class="t-dur">${fmt(t.dur)}</div>
@@ -593,8 +599,8 @@
           ${mode === 'icon' ? `<span class="cover-ico" style="${srcVars(src)}" title="${esc(src.name)}">${I[src.icon]}</span>` : ''}
           <span class="fab">${I.play}</span>
         </div>
-        <div class="card-title">${mode === 'title' ? srcIcon(src, 'sm') : ''}<span class="t-text">${esc(t.title)}</span></div>
-        <div class="card-sub">${esc(t.artist)}</div>
+        <div class="card-title">${mode === 'title' ? srcIcon(src, 'sm') : ''}${titleLink(t)}</div>
+        <div class="card-sub">${artistLink(t)}</div>
         ${mode === 'label' ? `<div class="card-src" style="${srcVars(src)}"><i class="dot"></i>${esc(src.name)}</div>` : ''}
       </div>`;
   };
@@ -643,19 +649,8 @@
       return;
     }
 
-    if (q) {
-      const seen = new Set();
-      const found = [...data.liked, ...data.recent, ...data.recommended]
-        .filter((t) => !seen.has(t.id) && seen.add(t.id))
-        .filter((t) => (t.title + ' ' + t.artist).toLowerCase().includes(q));
-      visibleTracks = found;
-      el.innerHTML = `
-        <div class="section">
-          <div class="section-title">${L('Search results')}</div>
-          ${found.length ? trackList(found) : `<div class="empty">${L('Nothing found. Try another title or artist.')}</div>`}
-        </div>`;
-      return;
-    }
+    if (q) return renderSearch(el, data, q);
+    if (state.view) return renderPage(el);
 
     if (tab === 'home') {
       const recent = data.recent.slice(0, 6);
@@ -674,23 +669,14 @@
       el.innerHTML = `
         <div class="section">
           <div class="section-title">${L('Playlists')}</div>
-          ${data.playlists.length ? `<div class="grid">${data.playlists.map((pl) => `
-            <div class="card">
-              <div class="cover" style="background:${esc(coverBg(pl.name, pl.art))}"><span class="fab">${I.play}</span></div>
-              <div class="card-title"><span class="t-text">${esc(pl.name)}</span></div>
-              <div class="card-sub">${state.platform === 'all' ? esc(platform(pl.source).name) + ', ' : ''}${esc(L('{0} tr.', pl.count))}</div>
-            </div>`).join('')}</div>` : emptyHtml()}
+          ${data.playlists.length ? `<div class="grid">${data.playlists.map(playlistCard).join('')}</div>` : emptyHtml()}
         </div>`;
     } else {
       visibleTracks = [];
       el.innerHTML = `
         <div class="section">
           <div class="section-title">${L('Following')}</div>
-          ${data.following.length ? `<div class="grid">${data.following.map((u) => `
-            <div class="card artist">
-              <div class="cover" style="background:${esc(coverBg(u.name, u.art))}"></div>
-              <div class="card-title"><span class="t-text">${esc(u.name)}</span></div>
-            </div>`).join('')}</div>` : emptyHtml()}
+          ${data.following.length ? `<div class="grid">${data.following.map(userCard).join('')}</div>` : emptyHtml()}
         </div>`;
     }
   }
@@ -703,32 +689,38 @@
   }
 
   /* ---------- Переходы и история (стрелки назад / вперёд) ---------- */
-  function show(platformId, tabId) {
+  function show(platformId, tabId, view) {
     state.platform = platformId;
     state.tabs[platformId] = tabId;
+    state.view = view || null;
+    state.expanded = new Set();
     state.query = '';
+    remoteSearch.q = '';
     $('searchInput').value = '';
     document.querySelector('.scroller').scrollTop = 0;
     document.querySelector('.main').classList.remove('scrolled');
+    if (state.view) loadPage(state.view);
     renderAll();
   }
 
-  // обычный переход пользователя: запоминаем в истории и обрезаем «будущее»
-  function go(platformId, tabId) {
+  // обычный переход пользователя: запоминаем в истории и обрезаем «будущее»; false — переходить было некуда
+  function go(platformId, tabId, view) {
     const here = nav.stack[nav.pos];
-    if (here.platform === platformId && here.tab === tabId) return;
+    if (here.platform === platformId && here.tab === tabId && viewKey(here.view) === viewKey(view)) return false;
     nav.stack = nav.stack.slice(0, nav.pos + 1);
-    nav.stack.push({ platform: platformId, tab: tabId });
+    nav.stack.push({ platform: platformId, tab: tabId, view: view || null });
     if (nav.stack.length > 50) nav.stack.shift();
     nav.pos = nav.stack.length - 1;
-    show(platformId, tabId);
+    show(platformId, tabId, view);
+    return true;
   }
 
   function stepHistory(delta) {
     const to = nav.pos + delta;
     if (to < 0 || to >= nav.stack.length) return;
     nav.pos = to;
-    show(nav.stack[to].platform, nav.stack[to].tab);
+    const s = nav.stack[to];
+    show(s.platform, s.tab, s.view);
   }
 
   /* ---------- Шрифты из локальной папки fonts ---------- */
@@ -1490,6 +1482,8 @@
     $('playBtn').innerHTML = player.playing ? I.pause : I.play;
     $('playBtn').title = L(player.playing ? 'Pause' : 'Play');
     $('likeBtn').classList.toggle('on', !!t && player.liked.has(t.id));
+    $('npTitle').classList.toggle('lnk', !!(t && t.scId));
+    $('npArtist').classList.toggle('lnk', !!(t && (t.artistId || t.artistUrl) && !player.error && !player.loading));
 
     $('shuffleBtn').classList.toggle('on', player.shuffle);
     $('shuffleBtn').title = L(player.shuffle ? 'Shuffle on' : 'Shuffle off');
@@ -1499,6 +1493,7 @@
 
     updateProgress();
     markPlaying();
+    syncHero();
   }
 
   function playAt(index, record = true) {
@@ -1561,6 +1556,7 @@
     if (current() && current().id === id) return toggle();
     player.queue = visibleTracks.slice();
     player.history = [];
+    player.index = -1;   // другой список: номер мог совпасть с прежним, и звук остался бы от старого трека
     playAt(player.queue.findIndex((t) => t.id === id), false);
   }
 
@@ -1606,7 +1602,7 @@
     await loadHlsLib();
     if (token !== loadToken) return;
     if (!window.Hls.isSupported()) throw new Error('HLS is not supported');
-    hls = new window.Hls();
+    hls = new window.Hls({ enableWorker: false });   // воркер из blob: запрещён политикой безопасности страницы
     hls.on(window.Hls.Events.ERROR, (_e, d) => { if (d && d.fatal && token === loadToken) audioFail(d.details); });
     hls.loadSource(url);
     hls.attachMedia(audio);
@@ -1685,13 +1681,15 @@
     if (!sc.connected) return scRerender();
     try { // сначала показываем сохранённую копию, чтобы приложение не пустовало, пока грузится свежая библиотека
       const cached = JSON.parse(localStorage.getItem(SC_CACHE) || 'null');
-      if (cached && Array.isArray(cached.liked) && Array.isArray(cached.recent)) { sc.user = cached.me; applyLibrary(cached); sc.sig = libSig(cached); }
+      if (cached && Array.isArray(cached.liked) && Array.isArray(cached.recent)) { sc.user = cached.me; applyLibrary(cached); sc.sig = cached.v === 2 ? libSig(cached) : ''; }
     } catch (e) { /* копии нет */ }
     scSchedule();
     scRefresh();
   }
 
-  const libSig = (l) => JSON.stringify([l.recent, l.recommended, l.liked, l.playlists, l.following]);
+  // подпись только по составу списков: счётчики прослушиваний меняются постоянно и не должны каждый раз перерисовывать экран
+  const libSig = (l) => JSON.stringify([l.v, ['recent', 'recommended', 'liked'].map((k) => l[k].map((x) => x.scId)),
+    l.playlists.map((p) => [p.scId, p.url, p.name, p.count]), l.following.map((u) => [u.scId, u.url])]);
 
   // quiet = фоновая синхронизация: без «загрузки» на экране, перерисовка только если в библиотеке что-то изменилось
   async function scRefresh(quiet) {
@@ -1764,6 +1762,288 @@
     else if (a === 'disconnect') scDisconnect();
   }
 
+  /* ---------- Страницы: трек, исполнитель, плейлист и альбом ---------- */
+  // view = { kind: 'track' | 'artist' | 'playlist', src, id, url }. Данные страницы запрашивает основной процесс
+  // (soundcloud.js). Чтобы подключить другую платформу, достаточно добавить её в entityApi с теми же методами.
+  const pages = new Map();     // ключ страницы -> { status: 'loading' | 'ok' | 'error', data, error, at }
+  let pendingPlay = '';        // страница, которую надо сразу запустить, как только она загрузится (кнопка ▶ на карточке)
+  const viewKey = (v) => (v ? `${v.src}:${v.kind}:${v.id || v.url}` : '');
+  const entityApi = (src) => (src === 'soundcloud' ? scApi() : null);
+  const KIND_LABEL = { track: 'Track', artist: 'Artist', playlist: 'Playlist' };
+
+  function viewTitle() {
+    const v = state.view;
+    if (!v) return '';
+    const pg = pages.get(viewKey(v));
+    const title = pg && pg.status === 'ok' ? pg.data.title : L(KIND_LABEL[v.kind]);
+    return title.length > 48 ? title.slice(0, 47) + '…' : title;
+  }
+
+  function buildPage(kind, d) {
+    if (kind === 'track') return { kind, title: d.track.title, track: mapTrack(d.track), related: d.related.map(mapTrack) };
+    if (kind === 'artist') {
+      return { kind, title: d.artist.name, artist: mapEntity(d.artist), popular: d.popular.map(mapTrack), tracks: d.tracks.map(mapTrack),
+               albums: d.albums.map(mapEntity), playlists: d.playlists.map(mapEntity) };
+    }
+    return { kind, title: d.playlist.name, pl: mapEntity(d.playlist), tracks: d.tracks.map(mapTrack) };
+  }
+
+  async function loadPage(v, force) {
+    const key = viewKey(v);
+    const hit = pages.get(key);
+    if (hit && (hit.status === 'loading' || (hit.status === 'ok' && !force && Date.now() - hit.at < 5 * 60 * 1000))) return;
+    const api = entityApi(v.src);
+    const call = api && { track: api.track, artist: api.user, playlist: api.playlist }[v.kind];
+    if (!call) { pages.set(key, { status: 'error', error: L('This page is not available for this platform yet.') }); return; }
+    pages.set(key, { status: 'loading' });
+    if (pages.size > 60) pages.delete(pages.keys().next().value);
+    let r;
+    try { r = await call({ id: v.id, url: v.url }); } catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
+    if (r && r.ok) {
+      try { pages.set(key, { status: 'ok', data: buildPage(v.kind, r.data), at: Date.now() }); }
+      catch (e) { pages.set(key, { status: 'error', error: String((e && e.message) || e) }); }
+    } else {
+      pages.set(key, { status: 'error', error: String((r && r.error) || 'Unknown error') });
+      if (r && r.auth) { scForget(); scSchedule(); sc.error = L('Your SoundCloud session expired. Connect again.'); }
+    }
+    if (viewKey(state.view) === key) { renderTitlebar(); scRerender(); }
+  }
+
+  /* --- мелкие кирпичи страниц --- */
+  const fmtNum = (n) => new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(n || 0);
+  const fmtLong = (s) => {
+    const min = Math.max(1, Math.round(s / 60));
+    return min >= 60 ? `${Math.floor(min / 60)} ${L('h')} ${min % 60} ${L('min')}` : `${min} ${L('min')}`;
+  };
+  const yearOf = (s) => { const y = new Date(s).getFullYear(); return y > 1990 ? String(y) : ''; };
+
+  // что открыть по клику: адрес и номер лежат в самом элементе
+  const refAttrs = (src, id, url) => `data-src="${esc(src || 'soundcloud')}" data-id="${Number(id) || 0}" data-url="${esc(url || '')}"`;
+  const titleLink = (t) => (t.scId
+    ? `<span class="t-text lnk" data-open="track" ${refAttrs(t.source, t.scId, t.url)}>${esc(t.title)}</span>`
+    : `<span class="t-text">${esc(t.title)}</span>`);
+  // и у трека, и у плейлиста исполнитель лежит в полях artist / artistId / artistUrl
+  const artistLink = (x) => (!x.artist ? '' : x.artistId || x.artistUrl
+    ? `<span class="lnk" data-open="artist" ${refAttrs(x.source, x.artistId, x.artistUrl)}>${esc(x.artist)}</span>`
+    : esc(x.artist));
+
+  function playlistCard(pl) {
+    const sub = [state.platform === 'all' ? platform(pl.source).name : '', pl.isAlbum ? L('Album') : '', L('{0} tr.', pl.count)].filter(Boolean).join(', ');
+    return `
+      <div class="card" data-open="playlist" ${refAttrs(pl.source, pl.scId, pl.url)}>
+        <div class="cover" style="background:${esc(coverBg(pl.name, pl.art))}"><span class="fab">${I.play}</span></div>
+        <div class="card-title"><span class="t-text">${esc(pl.name)}</span></div>
+        <div class="card-sub">${esc(sub)}</div>
+      </div>`;
+  }
+
+  const userCard = (u) => `
+      <div class="card artist" data-open="artist" ${refAttrs(u.source, u.scId, u.url)}>
+        <div class="cover" style="background:${esc(coverBg(u.name, u.art))}"></div>
+        <div class="card-title"><span class="t-text">${esc(u.name)}</span></div>
+        ${u.followers ? `<div class="card-sub">${esc(L('{0} followers', fmtNum(u.followers)))}</div>` : ''}
+      </div>`;
+
+  const sectionHtml = (title, body) => `<div class="section"><div class="section-title">${esc(title)}</div>${body}</div>`;
+  const aboutHtml = (desc) => (desc ? sectionHtml(L('About'), `<div class="about">${esc(desc)}</div>`) : '');
+  const actBtn = (act, icon, text, primary) => `<button class="btn ic ${primary ? 'primary' : ''}" data-act="${act}">${icon}<span>${esc(text)}</span></button>`;
+  const moreBtn = (sect, shown, total) => (total > shown ? `<div class="more-row"><button class="btn" data-act="more" data-sect="${sect}">${esc(L('Show more'))}</button></div>` : '');
+  const grid = (cards) => `<div class="grid">${cards}</div>`;
+
+  function heroHtml(h) {
+    return `
+      <div class="hero">
+        <div class="hero-cover ${h.round ? 'round' : ''}" style="background:${esc(coverBg(h.title, h.cover))}"></div>
+        <div class="hero-meta">
+          <div class="hero-kind">${esc(h.kind)}</div>
+          <div class="hero-title">${esc(h.title)}</div>
+          ${h.sub ? `<div class="hero-sub">${h.sub}</div>` : ''}
+          ${h.stats ? `<div class="hero-stats">${esc(h.stats)}</div>` : ''}
+          <div class="btn-row hero-actions">${h.actions}</div>
+        </div>
+      </div>`;
+  }
+
+  // кнопка «Играть» в шапке показывает паузу, пока играет трек с этой страницы
+  function syncHero() {
+    const btn = document.querySelector('#content [data-act="play"]');
+    if (!btn) return;
+    const on = player.playing && !!current() && visibleTracks.some((x) => x.id === current().id);
+    btn.innerHTML = (on ? I.pause : I.play) + `<span>${esc(L(on ? 'Pause' : 'Play'))}</span>`;
+  }
+
+  const playShuffle = (shuffle) => actBtn('play', I.play, L('Play'), true) + (shuffle ? actBtn('shuffle', I.shuffle, L('Shuffle')) : '');
+  const extBtn = (src) => actBtn('ext', I.globe, L('Open on {0}', platform(src).name));
+
+  function trackPageHtml(d) {
+    const t = d.track;
+    visibleTracks = [t, ...d.related.filter((x) => x.id !== t.id)];
+    const liked = player.liked.has(t.id);
+    const stats = [
+      t.plays ? L('{0} plays', fmtNum(t.plays)) : '', t.likes ? L('{0} likes', fmtNum(t.likes)) : '',
+      t.reposts ? L('{0} reposts', fmtNum(t.reposts)) : '', t.comments ? L('{0} comments', fmtNum(t.comments)) : '',
+      t.dur ? fmt(t.dur) : '',
+    ].filter(Boolean).join(' · ');
+    const artistBtn = t.artistId || t.artistUrl
+      ? `<button class="btn ic" data-open="artist" ${refAttrs(t.source, t.artistId, t.artistUrl)}>${I.person}<span>${esc(L('Artist page'))}</span></button>` : '';
+    return heroHtml({
+      kind: L('Track'), cover: t.artBig || t.art, title: t.title,
+      sub: [artistLink(t), t.genre && esc(t.genre), yearOf(t.date)].filter(Boolean).join(' · '),
+      stats,
+      actions: playShuffle(false) + actBtn('like', liked ? I.heartFill : I.heart, L(liked ? 'Liked' : 'Like')) + artistBtn + extBtn(t.source),
+    })
+      + aboutHtml(t.desc)
+      + (t.tags && t.tags.length ? sectionHtml(L('Tags'), `<div class="chips">${t.tags.map((x) => `<span class="chip">${esc(x)}</span>`).join('')}</div>`) : '')
+      + (d.related.length ? sectionHtml(L('Related tracks'), trackList(d.related)) : '');
+  }
+
+  function artistPageHtml(d) {
+    const a = d.artist;
+    const seen = new Set();
+    visibleTracks = [...d.popular, ...d.tracks].filter((x) => !seen.has(x.id) && seen.add(x.id));
+    const popN = state.expanded.has('popular') ? 10 : 5;
+    const latN = state.expanded.has('latest') ? d.tracks.length : 10;
+    return heroHtml({
+      kind: L('Artist'), cover: a.artBig || a.art, round: true, title: a.name,
+      sub: [a.city, a.country].filter(Boolean).map(esc).join(', '),
+      stats: [a.followers ? L('{0} followers', fmtNum(a.followers)) : '', a.trackCount ? L('{0} tr.', a.trackCount) : ''].filter(Boolean).join(' · '),
+      actions: playShuffle(true) + extBtn(a.source),
+    })
+      + aboutHtml(a.desc)
+      + (d.popular.length ? sectionHtml(L('Popular'), trackList(d.popular.slice(0, popN)) + moreBtn('popular', popN, d.popular.length)) : '')
+      + (d.tracks.length ? sectionHtml(L('Tracks'), trackList(d.tracks.slice(0, latN)) + moreBtn('latest', latN, d.tracks.length)) : '')
+      + (d.albums.length ? sectionHtml(L('Albums'), grid(d.albums.map(playlistCard).join(''))) : '')
+      + (d.playlists.length ? sectionHtml(L('Playlists'), grid(d.playlists.map(playlistCard).join(''))) : '')
+      + (d.popular.length || d.tracks.length || d.albums.length || d.playlists.length ? '' : emptyHtml());
+  }
+
+  function playlistPageHtml(d) {
+    const p = d.pl;
+    visibleTracks = d.tracks;
+    const total = p.totalDur || d.tracks.reduce((s, x) => s + (x.dur || 0), 0);
+    return heroHtml({
+      kind: L(p.isAlbum ? 'Album' : 'Playlist'), cover: p.artBig || p.art, title: p.name,
+      sub: [artistLink(p), p.isAlbum && yearOf(p.date)].filter(Boolean).join(' · '),
+      stats: [L('{0} tr.', d.tracks.length || p.count), total ? fmtLong(total) : ''].filter(Boolean).join(' · '),
+      actions: playShuffle(true) + extBtn(p.source),
+    })
+      + aboutHtml(p.desc)
+      + sectionHtml(L('Tracks'), d.tracks.length ? trackList(d.tracks) : emptyHtml());
+  }
+
+  function renderPage(el) {
+    const v = state.view;
+    const key = viewKey(v);
+    let pg = pages.get(key);
+    if (!pg) { loadPage(v); pg = pages.get(key); }
+    visibleTracks = [];
+    if (!pg || pg.status === 'loading') { el.innerHTML = `<div class="empty">${L('Loading…')}</div>`; return; }
+    if (pg.status === 'error') {
+      el.innerHTML = `<div class="notice"><p><b>${L('Could not open this page')}</b>${esc(pg.error)}</p>
+        <div class="btn-row"><button class="btn" data-act="retry">${L('Try again')}</button></div></div>`;
+      return;
+    }
+    const d = pg.data;
+    el.innerHTML = d.kind === 'track' ? trackPageHtml(d) : d.kind === 'artist' ? artistPageHtml(d) : playlistPageHtml(d);
+    syncHero();
+    if (pendingPlay === key) { pendingPlay = ''; playAll(false); }
+  }
+
+  /* ---------- Поиск по сервису (кроме треков из вашей библиотеки) ---------- */
+  const remoteSearch = { q: '', status: 'idle', data: null, error: '', cache: new Map(), timer: null };
+  const mapSearch = (d) => ({ tracks: d.tracks.map(mapTrack), users: d.users.map(mapEntity), playlists: d.playlists.map(mapEntity), albums: d.albums.map(mapEntity) });
+
+  function scheduleSearch() {
+    clearTimeout(remoteSearch.timer);
+    const q = state.query;
+    const api = scApi();
+    if (q.length < 2 || !sc.connected || !api || !api.search) { remoteSearch.q = ''; return; }
+    remoteSearch.q = q;
+    if (remoteSearch.cache.has(q)) { remoteSearch.status = 'ok'; remoteSearch.data = remoteSearch.cache.get(q); return; }
+    remoteSearch.status = 'loading';
+    remoteSearch.data = null;
+    remoteSearch.timer = setTimeout(async () => {
+      let r;
+      try { r = await api.search(q); } catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
+      if (remoteSearch.q !== q) return;
+      if (r && r.ok) {
+        remoteSearch.data = mapSearch(r.data);
+        remoteSearch.status = 'ok';
+        remoteSearch.cache.set(q, remoteSearch.data);
+        if (remoteSearch.cache.size > 30) remoteSearch.cache.delete(remoteSearch.cache.keys().next().value);
+      } else {
+        remoteSearch.status = 'error';
+        remoteSearch.error = String((r && r.error) || 'Unknown error');
+        if (r && r.auth) { scForget(); scSchedule(); sc.error = L('Your SoundCloud session expired. Connect again.'); }
+      }
+      if (state.query === q) scRerender();
+    }, 450);
+  }
+
+  function renderSearch(el, data, q) {
+    const seen = new Set();
+    const local = [...data.liked, ...data.recent, ...data.recommended]
+      .filter((t) => !seen.has(t.id) && seen.add(t.id))
+      .filter((t) => (t.title + ' ' + t.artist).toLowerCase().includes(q));
+    const rs = remoteSearch.q === q ? remoteSearch : null;
+    const d = rs && rs.status === 'ok' ? rs.data : null;
+    const localIds = new Set(local.map((t) => t.id));
+    const fresh = d ? d.tracks.filter((t) => !localIds.has(t.id)) : [];
+    visibleTracks = local.concat(fresh);
+    let html = '';
+    if (local.length) html += sectionHtml(L(rs ? 'In your library' : 'Search results'), trackList(local));
+    if (rs && rs.status === 'loading') html += `<div class="empty small">${esc(L('Searching…'))}</div>`;
+    else if (rs && rs.status === 'error') html += `<div class="notice"><p><b>${L('Search failed')}</b>${esc(rs.error)}</p></div>`;
+    else if (d) {
+      if (fresh.length) html += sectionHtml(L('Tracks'), trackList(fresh));
+      if (d.users.length) html += sectionHtml(L('Artists'), grid(d.users.map(userCard).join('')));
+      if (d.albums.length) html += sectionHtml(L('Albums'), grid(d.albums.map(playlistCard).join('')));
+      if (d.playlists.length) html += sectionHtml(L('Playlists'), grid(d.playlists.map(playlistCard).join('')));
+    }
+    el.innerHTML = html || `<div class="section"><div class="section-title">${L('Search results')}</div><div class="empty">${L('Nothing found. Try another title or artist.')}</div></div>`;
+  }
+
+  /* ---------- Открытие страниц и кнопки на них ---------- */
+  function openEntity(kind, ref, opts, platformId) {
+    const id = Math.floor(Number(ref.id)) || 0;
+    const url = ref.url || '';
+    if (!id && !url) return;
+    const view = { kind, src: ref.src || 'soundcloud', id, url };
+    const key = viewKey(view);
+    pendingPlay = opts && opts.autoplay ? key : '';
+    const plat = platformId || state.platform;
+    if (!go(plat, state.tabs[plat], view) && pendingPlay) renderContent();   // страница уже открыта: просто запускаем
+  }
+
+  function playAll(shuffle) {
+    if (!visibleTracks.length) return;
+    if (!shuffle && current() && visibleTracks.some((x) => x.id === current().id)) return toggle();
+    player.queue = visibleTracks.slice();
+    player.history = [];
+    player.index = -1;
+    if (shuffle) player.shuffle = true;
+    playAt(shuffle ? Math.floor(Math.random() * player.queue.length) : 0, false);
+  }
+
+  function pageAction(btn) {
+    const a = btn.dataset.act;
+    const pg = state.view ? pages.get(viewKey(state.view)) : null;
+    const d = pg && pg.status === 'ok' ? pg.data : null;
+    if (a === 'play') playAll(false);
+    else if (a === 'shuffle') playAll(true);
+    else if (a === 'more') { state.expanded.add(btn.dataset.sect); renderContent(); }
+    else if (a === 'retry') { pages.delete(viewKey(state.view)); renderContent(); }
+    else if (a === 'like' && d && d.track) {
+      if (player.liked.has(d.track.id)) player.liked.delete(d.track.id); else player.liked.add(d.track.id);
+      updatePlayer();
+      renderContent();
+    } else if (a === 'ext' && d) {
+      const api = scApi();
+      const url = (d.track || d.artist || d.pl || {}).url;
+      if (api && api.openLink && url) api.openLink(url);
+    }
+  }
+
   /* ---------- События ---------- */
   $('rail').addEventListener('click', (e) => {
     const btn = e.target.closest('.rail-btn');
@@ -1783,14 +2063,33 @@
 
   $('searchInput').addEventListener('input', (e) => {
     state.query = e.target.value.trim().toLowerCase();
+    scheduleSearch();
     renderContent();
   });
 
   $('content').addEventListener('click', (e) => {
     const scBtn = e.target.closest('[data-sc]');
     if (scBtn) return scAction(scBtn.dataset.sc);
+    const act = e.target.closest('[data-act]');
+    if (act) return pageAction(act);
+    // ссылки на страницы (название, исполнитель, карточки плейлистов и исполнителей) перехватывают клик раньше, чем строка трека
+    const open = e.target.closest('[data-open]');
+    if (open) return openEntity(open.dataset.open, { src: open.dataset.src, id: open.dataset.id, url: open.dataset.url }, { autoplay: !!e.target.closest('.fab') });
     const row = e.target.closest('[data-track]');
     if (row) playTrack(Number(row.dataset.track));
+  });
+
+  // название, обложка и исполнитель в нижнем плеере открывают страницу играющего трека
+  const npPlatform = (t) => (DATA[state.platform].connected ? state.platform : t.source);
+  const openNowPlaying = () => {
+    const t = current();
+    if (t && t.scId) openEntity('track', { src: t.source, id: t.scId, url: t.url }, null, npPlatform(t));
+  };
+  $('npTitle').addEventListener('click', openNowPlaying);
+  $('npCover').addEventListener('click', openNowPlaying);
+  $('npArtist').addEventListener('click', () => {
+    const t = current();
+    if (t && (t.artistId || t.artistUrl) && !player.error && !player.loading) openEntity('artist', { src: t.source, id: t.artistId, url: t.artistUrl }, null, npPlatform(t));
   });
 
   // настройки

@@ -1,7 +1,7 @@
 // Подключение SoundCloud (основной процесс): вход через окно сайта soundcloud.com внутри приложения.
 // Приложение берёт сессию этого окна и ходит в тот же api-v2, что и сайт (способ неофициальный).
 // Токены в окно приложения не попадают: наружу отдаются готовые списки треков и ссылки на звук.
-const { app, BrowserWindow, session, net } = require('electron');
+const { app, BrowserWindow, session, net, shell } = require('electron');
 const fs = require('fs');
 const path = require('path');
 
@@ -48,8 +48,8 @@ async function collect(get, first, limit) {
 /* ---------- Приведение ответов SoundCloud к одному виду ---------- */
 // картинки показываем только с серверов SoundCloud: адрес попадает в стиль страницы
 const SAFE_IMG = /^https:\/\/[a-z0-9.-]+\.sndcdn\.com\/[^\s"'()<>\\]+$/i;
-const art = (u) => {
-  const big = u ? String(u).replace('-large.', '-t300x300.') : '';
+const art = (u, size) => {
+  const big = u ? String(u).replace('-large.', '-' + (size || 't300x300') + '.') : '';
   return SAFE_IMG.test(big) ? big : '';
 };
 function toTrack(t) {
@@ -59,9 +59,15 @@ function toTrack(t) {
     scId: t.id,
     title: String(t.title),
     artist: String(u.username || (t.publisher_metadata && t.publisher_metadata.artist) || ''),
+    artistId: u.id || 0,
+    artistUrl: String(u.permalink_url || ''),
     dur: Math.round((t.full_duration || t.duration || 0) / 1000),
     art: art(t.artwork_url || u.avatar_url),
     url: String(t.permalink_url || ''),
+    plays: t.playback_count || 0,
+    likes: t.likes_count || t.favoritings_count || 0,
+    date: String(t.release_date || t.created_at || t.display_date || ''),
+    genre: String(t.genre || ''),
   };
 }
 // элемент списка бывает самим треком ({title…}), обёрткой ({track}) или событием ленты ({type, origin})
@@ -70,11 +76,32 @@ function toPlaylist(it) {
   const p = it && (it.playlist || (/playlist/.test(it.type || '') && it.origin) || (!it.type && it));
   if (!p || !p.id || !p.title) return null;
   const first = (p.tracks || [])[0] || {};
-  return { name: String(p.title), count: p.track_count || (p.tracks || []).length || 0, art: art(p.artwork_url || first.artwork_url), url: String(p.permalink_url || '') };
+  const u = p.user || {};
+  return {
+    scId: p.id,
+    name: String(p.title),
+    count: p.track_count || (p.tracks || []).length || 0,
+    art: art(p.artwork_url || first.artwork_url),
+    url: String(p.permalink_url || ''),
+    isAlbum: !!p.is_album || /^(album|ep|single|compilation)$/i.test(String(p.set_type || '')),
+    artist: String(u.username || ''),
+    artistId: u.id || 0,
+    artistUrl: String(u.permalink_url || ''),
+    date: String(p.release_date || p.published_at || p.created_at || ''),
+  };
 }
 function toUser(u) {
   if (!u || !u.id || !u.username) return null;
-  return { name: String(u.username), art: art(u.avatar_url), url: String(u.permalink_url || '') };
+  return {
+    scId: u.id,
+    name: String(u.username),
+    art: art(u.avatar_url),
+    url: String(u.permalink_url || ''),
+    followers: u.followers_count || 0,
+    trackCount: u.track_count || 0,
+    city: String(u.city || ''),
+    country: String(u.country_code || ''),
+  };
 }
 const uniq = (list, key) => { const seen = new Set(); return list.filter((x) => x && !seen.has(key(x)) && seen.add(key(x))); };
 
@@ -99,6 +126,7 @@ async function fetchLibrary(get) {
   const tracks = (list) => uniq(list.map(trackOf), (t) => t.scId);
   return {
     me: { name: String(me.username || me.full_name || ''), avatar: art(me.avatar_url), url: String(me.permalink_url || '') },
+    v: 2,                                          // версия формата списков (в кэше интерфейса)
     updated: Date.now(),
     recent: tracks(recent),
     recommended: tracks(recommended),
@@ -217,20 +245,47 @@ async function loginWeb(parent) {
 
 /* ---------- Звук ---------- */
 // Ссылка на звук живёт недолго, поэтому запрашивается в момент, когда трек начинает играть.
-// Берём обычный mp3 (progressive): он играет без дополнительных библиотек, потом HLS, потом всё остальное.
+// Играть умеем обычный файл (progressive) и HLS с mp3/aac. Зашифрованные потоки (DRM) и HLS с opus окно приложения не воспроизведёт,
+// поэтому их не выбираем. Перед выдачей ссылку проверяем: если она не открывается, берём следующий вариант.
+const isPlayable = (x) => {
+  const p = x.format.protocol;
+  const m = String(x.format.mime_type || '');
+  return p === 'progressive' || (p === 'hls' && /mpeg|mp4|aac/i.test(m));
+};
+const describe = (x) => `${x.format.protocol} ${x.format.mime_type || '?'}${x.snipped ? ' (preview)' : ''}`;
+
+async function reachable(url) {
+  try {
+    const res = await net.fetch(url, { headers: { Range: 'bytes=0-1', 'User-Agent': chromeUA() } });
+    try { if (res.body) await res.body.cancel(); } catch (e) { /* ничего */ }
+    return res.status === 200 || res.status === 206 ? '' : 'HTTP ' + res.status;
+  } catch (e) { return String((e && e.message) || e); }
+}
+
 async function resolveStream(get, trackId) {
   const t = await get(`/tracks/${Number(trackId)}`);
-  const list = ((t.media && t.media.transcodings) || []).filter((x) => x && x.url && x.format);
+  const all = ((t.media && t.media.transcodings) || []).filter((x) => x && x.url && x.format);
+  const list = all.filter(isPlayable);
+  // полный трек раньше превью, обычный файл раньше HLS, mp3 раньше aac
   const rank = (x) => (x.snipped ? 100 : 0) + (x.format.protocol === 'progressive' ? 0 : 10) + (/mpeg/.test(x.format.mime_type || '') ? 0 : 1);
   list.sort((a, b) => rank(a) - rank(b));
+  const notes = [];
   let lastError = null;
   for (const tc of list) {
     try {
       const u = new URL(tc.url);
       if (t.track_authorization) u.searchParams.set('track_authorization', t.track_authorization);
       const r = await get(u.toString());
-      if (r && r.url) return { ok: true, url: r.url, protocol: tc.format.protocol, mime: tc.format.mime_type || '', snipped: !!tc.snipped };
-    } catch (e) { if (e instanceof AuthError) throw e; lastError = e; }
+      if (!r || !r.url) { notes.push(describe(tc) + ': no link'); continue; }
+      const bad = await reachable(r.url);
+      if (bad) { notes.push(describe(tc) + ': ' + bad); lastError = new Error(bad); continue; }
+      return { ok: true, url: r.url, protocol: tc.format.protocol, mime: tc.format.mime_type || '', snipped: !!tc.snipped };
+    } catch (e) { if (e instanceof AuthError) throw e; notes.push(describe(tc) + ': ' + e.message); lastError = e; }
+  }
+  // в терминале видно, какие варианты были у трека и почему ни один не подошёл
+  log('no playable stream for track', trackId, '| available:', all.map(describe).join(', ') || 'none', '| tried:', notes.join('; ') || 'nothing');
+  if (!list.length && all.length) {
+    return { ok: false, error: 'Only protected or unsupported formats are available for this track (' + [...new Set(all.map((x) => x.format.protocol))].join(', ') + ')' };
   }
   return { ok: false, error: lastError ? lastError.message : 'No playable stream (the track may be restricted in your region)' };
 }
@@ -244,6 +299,130 @@ async function stream(trackId) {
     return { ok: false, auth: e instanceof AuthError, error: String((e && e.message) || e) };
   }
 }
+
+/* ---------- Страницы: трек, исполнитель, плейлист/альбом, поиск ---------- */
+// Только ссылки на сам сайт: по ним можно открыть страницу и разрешить адрес в объект.
+const SC_LINK = /^https:\/\/(www\.|m\.)?soundcloud\.com\/\S+$/i;
+const parseTags = (s) => [...String(s || '').matchAll(/"([^"]+)"|(\S+)/g)].map((m) => m[1] || m[2]);
+
+function trackFull(t) {
+  const u = t.user || {};
+  return {
+    ...toTrack(t),
+    artBig: art(t.artwork_url || u.avatar_url, 't500x500'),
+    desc: String(t.description || '').slice(0, 4000),
+    tags: parseTags(t.tag_list).slice(0, 12),
+    reposts: t.reposts_count || 0,
+    comments: t.comment_count || 0,
+  };
+}
+function userFull(u) {
+  return { ...toUser(u), artBig: art(u.avatar_url, 't500x500'), desc: String(u.description || '').slice(0, 4000) };
+}
+function playlistFull(p, tracks) {
+  const base = toPlaylist(p);
+  return {
+    ...base,
+    artBig: art(p.artwork_url, 't500x500') || (tracks[0] && tracks[0].art) || base.art,
+    desc: String(p.description || '').slice(0, 4000),
+    totalDur: Math.round((p.duration || 0) / 1000),
+  };
+}
+
+// объект по номеру или по ссылке на soundcloud.com
+async function byRef(get, ref, base, kind) {
+  if (ref.id) return get(`/${base}/${ref.id}`);
+  if (!SC_LINK.test(ref.url)) throw new Error('Unsupported link');
+  const r = await get('/resolve?url=' + encodeURIComponent(ref.url));
+  if (!r || r.kind !== kind) throw new Error('This link leads to a different kind of page');
+  return r;
+}
+
+// у плейлиста полностью описаны только первые треки, у остальных есть лишь номер: догружаем пачками
+async function hydrate(get, items) {
+  const need = items.filter((x) => x && x.id && !x.title).map((x) => x.id).slice(0, 300);
+  const got = new Map();
+  for (let i = 0; i < need.length; i += 30) {
+    try {
+      const part = await get(`/tracks?ids=${need.slice(i, i + 30).join(',')}`);
+      (Array.isArray(part) ? part : []).forEach((x) => x && x.id && got.set(x.id, x));
+    } catch (e) { if (e instanceof AuthError) throw e; }
+  }
+  return items.map((x) => (x && x.title ? x : got.get(x && x.id))).filter(Boolean);
+}
+
+const tracksOf = (list) => uniq(list.map(trackOf), (x) => x.scId);
+
+function safeCollect(get, warnings) {
+  return async (first, limit) => {
+    try { return await collect(get, first, limit); } catch (e) {
+      if (e instanceof AuthError) throw e;
+      warnings.push(e.message);
+      return [];
+    }
+  };
+}
+
+async function trackPage(get, ref) {
+  const t = await byRef(get, ref, 'tracks', 'track');
+  const safe = safeCollect(get, []);
+  const related = await safe(`/tracks/${t.id}/related?limit=20`, 20);
+  return { track: trackFull(t), related: tracksOf(related).filter((x) => x.scId !== t.id) };
+}
+
+async function userPage(get, ref) {
+  const u = await byRef(get, ref, 'users', 'user');
+  const warnings = [];
+  const safe = safeCollect(get, warnings);
+  const [top, latest, albums, lists] = await Promise.all([
+    safe(`/users/${u.id}/toptracks?limit=10`, 10),
+    safe(`/users/${u.id}/tracks?limit=50`, 50),
+    safe(`/users/${u.id}/albums?limit=30`, 30),
+    safe(`/users/${u.id}/playlists_without_albums?limit=30`, 30),
+  ]);
+  const lists_ = (l) => uniq(l.map(toPlaylist), (p) => p.scId);
+  return { artist: userFull(u), popular: tracksOf(top), tracks: tracksOf(latest), albums: lists_(albums), playlists: lists_(lists), warnings };
+}
+
+async function playlistPage(get, ref) {
+  const p = await byRef(get, ref, 'playlists', 'playlist');
+  const tracks = tracksOf(await hydrate(get, p.tracks || []));
+  return { playlist: playlistFull(p, tracks), tracks };
+}
+
+async function searchAll(get, q) {
+  const enc = encodeURIComponent(q);
+  const warnings = [];
+  const safe = safeCollect(get, warnings);
+  const [tr, us, pl, al] = await Promise.all([
+    safe(`/search/tracks?q=${enc}&limit=20`, 20),
+    safe(`/search/users?q=${enc}&limit=10`, 10),
+    safe(`/search/playlists_without_albums?q=${enc}&limit=10`, 10),
+    safe(`/search/albums?q=${enc}&limit=10`, 10),
+  ]);
+  return {
+    tracks: tracksOf(tr),
+    users: uniq(us.map(toUser), (u) => u.scId),
+    playlists: uniq(pl.map(toPlaylist), (p) => p.scId),
+    albums: uniq(al.map(toPlaylist), (p) => p.scId),
+    warnings,
+  };
+}
+
+// общая обёртка: проверяем вход, достаём client_id и превращаем любую ошибку в { ok: false }
+async function viaWeb(fn) {
+  try {
+    const token = await webToken();
+    if (!token || readConf().mode !== 'web') throw new AuthError('Signed out');
+    return await fn(webGetter(token, await webClientId()));
+  } catch (e) {
+    return { ok: false, auth: e instanceof AuthError, error: String((e && e.message) || e) };
+  }
+}
+const cleanRef = (r) => {
+  const id = Math.floor(Number(r && r.id));
+  return { id: id > 0 ? id : 0, url: r && typeof r.url === 'string' ? r.url.trim().slice(0, 400) : '' };
+};
 
 /* ---------- Общие действия ---------- */
 async function status() {
@@ -273,6 +452,28 @@ function register(ipcMain, winOf) {
   ipcMain.handle('sc:status', () => status());
   ipcMain.handle('sc:library', () => library());
   ipcMain.handle('sc:stream', (_e, id) => stream(id));
+
+  // страницы: трек, исполнитель, плейлист или альбом (по номеру или по ссылке на soundcloud.com)
+  const page = (channel, fn) => ipcMain.handle(channel, (_e, ref) => {
+    const r = cleanRef(ref);
+    if (!r.id && !r.url) return { ok: false, error: 'No link' };
+    return viaWeb(async (get) => ({ ok: true, data: await fn(get, r) }));
+  });
+  page('sc:track', trackPage);
+  page('sc:user', userPage);
+  page('sc:playlist', playlistPage);
+  ipcMain.handle('sc:search', (_e, q) => {
+    const s = String(q || '').trim().slice(0, 100);
+    if (s.length < 2) return { ok: false, error: 'Query is too short' };
+    return viaWeb(async (get) => ({ ok: true, data: await searchAll(get, s) }));
+  });
+  // «Открыть на SoundCloud»: только адреса самого сайта
+  ipcMain.handle('sc:open-link', async (_e, url) => {
+    const u = typeof url === 'string' ? url.trim() : '';
+    if (!SC_LINK.test(u)) return false;
+    await shell.openExternal(u);
+    return true;
+  });
   ipcMain.handle('sc:logout', async () => { await logout(); return true; });
   ipcMain.handle('sc:login', async (e) => {
     if (loginBusy) return { ok: false, error: 'Sign-in is already in progress' };
@@ -287,4 +488,4 @@ function register(ipcMain, winOf) {
   });
 }
 
-module.exports = { register, _test: { fetchLibrary, collect, trackOf, toPlaylist, toUser, art, resolveStream, AuthError } };
+module.exports = { register, _test: { fetchLibrary, collect, trackOf, toPlaylist, toUser, art, resolveStream, AuthError, trackPage, userPage, playlistPage, searchAll, hydrate } };

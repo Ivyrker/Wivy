@@ -24,6 +24,12 @@ contextBridge.exposeInMainWorld('api', {
     logout: () => ipcRenderer.invoke('sc:logout'),
     library: () => ipcRenderer.invoke('sc:library'),
     stream: (trackId) => ipcRenderer.invoke('sc:stream', trackId), // ссылка на звук трека
+    // страницы; ref = { id } или { url } (адрес на soundcloud.com)
+    track: (ref) => ipcRenderer.invoke('sc:track', ref),
+    user: (ref) => ipcRenderer.invoke('sc:user', ref),
+    playlist: (ref) => ipcRenderer.invoke('sc:playlist', ref),
+    search: (query) => ipcRenderer.invoke('sc:search', query),
+    openLink: (url) => ipcRenderer.invoke('sc:open-link', url),
   },
 
 
