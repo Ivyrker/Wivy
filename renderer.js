@@ -253,7 +253,7 @@
   }
 
   /* ---------- Данные ---------- */
-  // Пока подключён только SoundCloud: его библиотека приходит из основного процесса (soundcloud.js).
+  // Подключены SoundCloud (soundcloud.js) и VK Музыка (vk.js): их библиотеки приходят из основного процесса.
   // У остальных платформ данных нет, поэтому вместо треков показывается плашка «Demo data».
   const emptyData = () => ({ connected: false, recent: [], recommended: [], liked: [], playlists: [], following: [] });
   const DATA = {};
@@ -277,14 +277,33 @@
     DATA.all = { connected: parts.length > 0, recent: mix('recent'), recommended: mix('recommended'), liked: mix('liked'), playlists: mix('playlists'), following: mix('following') };
   }
 
-  // трек и остальные объекты берут все поля, что прислал основной процесс (исполнитель, счётчики, дата…)
-  const mapTrack = (t) => ({ ...t, id: idFor('soundcloud:' + t.scId), source: 'soundcloud' });
-  const mapEntity = (x) => ({ ...x, source: 'soundcloud' });
+  // Замок у трека (lock): 'drm' — только защищённые потоки, 'region' — закрыт для вашего региона или аккаунта.
+  // SoundCloud сообщает об этом заранее, VK только при попытке играть, поэтому выясненное запоминаем между запусками.
+  const LOCKS_KEY = 'music-player-locks';
+  let lockStore = {};
+  try { lockStore = JSON.parse(localStorage.getItem(LOCKS_KEY)) || {}; } catch (e) { lockStore = {}; }
+  const trackKey = (src, t) => `${src}:${t.scId || t.vkId}`;
+  function rememberLock(t, kind) {
+    const key = trackKey(t.source, t);
+    lockStore[key] = kind;
+    const keys = Object.keys(lockStore);
+    if (keys.length > 2000) delete lockStore[keys[0]];
+    try { localStorage.setItem(LOCKS_KEY, JSON.stringify(lockStore)); } catch (e) { /* ничего */ }
+    t.lock = kind;
+    Object.values(DATA).forEach((d) => ['recent', 'recommended', 'liked'].forEach((k) => d[k].forEach((x) => { if (trackKey(x.source, x) === key) x.lock = kind; })));
+  }
 
-  function applyLibrary(lib) {
-    const track = mapTrack;
-    const tag = (x) => ({ ...x, source: 'soundcloud' });
-    DATA.soundcloud = {
+  // трек и остальные объекты берут все поля, что прислал основной процесс (исполнитель, счётчики, дата, у VK ещё vkId и hash)
+  const mapTrackFor = (src) => (t) => { const key = trackKey(src, t); return { ...t, id: idFor(key), source: src, lock: t.lock || lockStore[key] || '' }; };
+  const mapEntityFor = (src) => (x) => ({ ...x, source: src });
+  const mapTrack = mapTrackFor('soundcloud');
+  const mapEntity = mapEntityFor('soundcloud');
+
+  // id платформы: 'soundcloud' или 'vk'
+  function applyLibrary(id, lib) {
+    const track = mapTrackFor(id);
+    const tag = mapEntityFor(id);
+    DATA[id] = {
       connected: true,
       recent: lib.recent.map(track),
       recommended: lib.recommended.map(track),
@@ -574,16 +593,19 @@
     `<span class="src-ico ${size}" style="${srcVars(src)}" title="${esc(src.name)}">${I[src.icon]}</span>`;
 
   // трек, у которого есть только защищённый поток: показываем замок и не пытаемся играть
-  const locked = (t) => !!(t && t.drm);
-  const lockIcon = (t) => (t.drm ? `<span class="lock-ico" title="${esc(L('Protected (DRM): cannot be played here'))}">${I.lock}</span>` : '');
-  const lockedMsg = () => L('This track is protected (DRM) and cannot be played here. Open it on SoundCloud.');
+  const locked = (t) => !!(t && t.lock);
+  const LOCK_TITLE = { drm: 'Protected (DRM): cannot be played here', region: 'Not available in your region' };
+  const lockIcon = (t) => (t.lock ? `<span class="lock-ico" title="${esc(L(LOCK_TITLE[t.lock] || LOCK_TITLE.region))}">${I.lock}</span>` : '');
+  const lockedMsg = (t) => (t && t.lock === 'region'
+    ? L('This track is not available in your region.')
+    : L('This track is protected (DRM) and cannot be played here. Open it on SoundCloud.'));
 
   const trackRow = (t) => {
     const src = platform(t.source);
     const mode = markMode();
     const cls = mode === 'icon' ? 'with-ico' : mode === 'label' ? 'with-src' : '';
     return `
-      <div class="track ${cls} ${t.drm ? 'locked' : ''} ${current() && current().id === t.id ? 'playing' : ''}" data-track="${t.id}">
+      <div class="track ${cls} ${t.lock ? 'locked' : ''} ${current() && current().id === t.id ? 'playing' : ''}" data-track="${t.id}">
         ${mode === 'icon' ? srcIcon(src, '') : ''}
         <div class="mini" style="background:${esc(coverBg(t.title + t.artist, t.art))}"><span class="ico">${I.play}</span></div>
         <div class="t-meta">
@@ -599,7 +621,7 @@
     const src = platform(t.source);
     const mode = markMode();
     return `
-      <div class="card ${mode === 'label' ? 'with-label' : ''} ${t.drm ? 'locked' : ''}" data-track="${t.id}">
+      <div class="card ${mode === 'label' ? 'with-label' : ''} ${t.lock ? 'locked' : ''}" data-track="${t.id}">
         <div class="cover" style="background:${esc(coverBg(t.title + t.artist, t.art))}">
           ${mode === 'icon' ? `<span class="cover-ico" style="${srcVars(src)}" title="${esc(src.name)}">${I[src.icon]}</span>` : ''}
           <span class="fab">${I.play}</span>
@@ -612,30 +634,32 @@
 
   const trackList = (list) => list.map(trackRow).join('');
 
-  // плашка вместо содержимого: платформа не подключена, идёт вход или загрузка
+  // плашка вместо содержимого: платформа не подключена, идёт вход или загрузка.
+  // У платформы с входом (SoundCloud, VK) своя кнопка, в «Все треки» кнопки обеих, у остальных пока «Скоро».
   function noticeHtml() {
     const id = state.platform;
-    const isSc = id === 'soundcloud';
+    const list = id === 'all' ? Object.values(SVCS) : SVCS[id] ? [SVCS[id]] : [];
+    const loading = list.find((s) => s.loading);
     const text = id === 'all' ? L('No platforms are connected yet.')
-      : isSc && sc.loading ? L('Loading your SoundCloud library…')
+      : loading ? L(TXT[id].loading)
       : L('The {0} account is not connected yet.', platform(id).name);
     let btn = `<button class="btn primary" disabled title="${L('Soon')}">${L('Connect account')}</button>`;
-    if (id === 'all' || isSc) {
-      if (sc.busy) btn = `<button class="btn primary" disabled>${L('Connecting…')}</button>`;
-      else if (sc.loading) btn = '';
-      else btn = `<button class="btn primary" data-sc="connect">${L(id === 'all' ? 'Connect SoundCloud' : 'Connect account')}</button>`;
+    if (list.length) {
+      btn = loading ? '' : list.map((s) => s.busy
+        ? `<button class="btn primary" disabled>${L('Connecting…')}</button>`
+        : `<button class="btn primary" data-svc="${s.id}" data-sc="connect">${L(id === 'all' ? TXT[s.id].connect : 'Connect account')}</button>`).join('');
     }
-    const err = sc.error && (id === 'all' || isSc) ? `<small class="err">${esc(sc.error)}</small>` : '';
-    return `<div class="notice"><p><b>${L('Demo data')}</b>${esc(text)}${err}</p>${btn}</div>`;
+    const err = list.map((s) => s.error).filter(Boolean).map((e) => `<small class="err">${esc(e)}</small>`).join('');
+    return `<div class="notice"><p><b>${L('Demo data')}</b>${esc(text)}${err}</p><div class="btn-row">${btn}</div></div>`;
   }
 
-  // верхняя строка раздела «Главная» у подключённого SoundCloud: чей аккаунт и кнопки обновления и выхода
-  const accountBar = () => `
+  // верхняя строка раздела «Главная» у подключённой платформы: чей аккаунт и кнопки обновления и выхода
+  const accountBar = (s) => `
     <div class="notice">
-      <p><b>${esc(sc.user && sc.user.name ? sc.user.name : 'SoundCloud')}</b>${esc(sc.loading ? L('Updating your library…') : L('Library synced with SoundCloud.'))}${sc.error ? `<small class="err">${esc(sc.error)}</small>` : ''}</p>
+      <p><b>${esc(s.user && s.user.name ? s.user.name : platform(s.id).name)}</b>${esc(s.loading ? L('Updating your library…') : L(TXT[s.id].synced))}${s.error ? `<small class="err">${esc(s.error)}</small>` : ''}</p>
       <div class="btn-row">
-        <button class="btn" data-sc="refresh" ${sc.loading ? 'disabled' : ''}>${L('Refresh')}</button>
-        <button class="btn" data-sc="disconnect">${L('Disconnect')}</button>
+        <button class="btn" data-svc="${s.id}" data-sc="refresh" ${s.loading ? 'disabled' : ''}>${L('Refresh')}</button>
+        <button class="btn" data-svc="${s.id}" data-sc="disconnect">${L('Disconnect')}</button>
       </div>
     </div>`;
 
@@ -662,7 +686,7 @@
       const more = data.recommended;
       visibleTracks = recent.concat(more);
       el.innerHTML = `
-        ${state.platform === 'soundcloud' ? accountBar() : ''}
+        ${SVCS[state.platform] ? accountBar(SVCS[state.platform]) : ''}
         ${recent.length ? `<div class="section"><div class="section-title">${L('Recently played')}</div><div class="grid">${recent.map(trackCard).join('')}</div></div>` : ''}
         ${more.length ? `<div class="section"><div class="section-title">${L('Recommended')}</div>${trackList(more)}</div>` : ''}
         ${recent.length || more.length ? '' : emptyHtml()}`;
@@ -794,7 +818,7 @@
   // единый список настроек: из него берутся и заголовки на страницах, и поиск
   const DEFS = [
     { id: 'acc-platforms', section: 'accounts', sub: 'platforms', title: 'Connected platforms',
-      desc: 'Connect your music accounts. SoundCloud signs in through a window inside the app; VK Music, YouTube Music and Yandex Music will be added later.' },
+      desc: 'Connect your music accounts. SoundCloud and VK Music sign in through a window inside the app; YouTube Music and Yandex Music will be added later.' },
     { id: 'acc-sync', section: 'accounts', sub: 'sync', title: 'Library auto-update',
       desc: 'Keeps your library fresh: while the app is open, it checks SoundCloud in the background for new liked tracks, playlists and follows.' },
     { id: 'acc-sync-every', section: 'accounts', sub: 'sync', title: 'Update interval',
@@ -1050,7 +1074,8 @@
     </div>`;
 
   const platformRows = () => PLATFORMS.filter((p) => p.id !== 'all').map((p) => {
-    if (p.id !== 'soundcloud') {
+    const s = SVCS[p.id];
+    if (!s) {
       return `
     <div class="row">
       ${badge(p)}
@@ -1058,16 +1083,16 @@
       <button class="btn" disabled title="${L('Soon')}">${L('Connect')}</button>
     </div>`;
     }
-    const status = sc.loading ? L('Loading…')
-      : sc.connected ? (sc.user && sc.user.name ? L('Signed in as {0}', sc.user.name) : L('Connected'))
+    const status = s.loading ? L('Loading…')
+      : s.connected ? (s.user && s.user.name ? L('Signed in as {0}', s.user.name) : L('Connected'))
       : L('Not connected');
-    const btns = sc.connected
-      ? `<button class="btn" data-sc="refresh" ${sc.loading ? 'disabled' : ''}>${L('Refresh')}</button><button class="btn" data-sc="disconnect">${L('Disconnect')}</button>`
-      : `<button class="btn primary" data-sc="connect" ${sc.busy ? 'disabled' : ''}>${sc.busy ? L('Connecting…') : L('Connect')}</button>`;
+    const btns = s.connected
+      ? `<button class="btn" data-svc="${s.id}" data-sc="refresh" ${s.loading ? 'disabled' : ''}>${L('Refresh')}</button><button class="btn" data-svc="${s.id}" data-sc="disconnect">${L('Disconnect')}</button>`
+      : `<button class="btn primary" data-svc="${s.id}" data-sc="connect" ${s.busy ? 'disabled' : ''}>${s.busy ? L('Connecting…') : L('Connect')}</button>`;
     return `
     <div class="row">
       ${badge(p)}
-      <div class="grow">${esc(p.name)}<small>${esc(status)}</small>${sc.error ? `<small class="err">${esc(sc.error)}</small>` : ''}</div>
+      <div class="grow">${esc(p.name)}<small>${esc(status)}</small>${s.error ? `<small class="err">${esc(s.error)}</small>` : ''}</div>
       <div class="btn-row" style="margin:0">${btns}</div>
     </div>`;
   }).join('');
@@ -1529,11 +1554,11 @@
     if (locked(player.queue[target])) {
       if (player.advance) {
         target = findPlayable(target, dir);
-        if (target < 0) return stopWith(L('None of these tracks can be played here: they are protected (DRM).'));
+        if (target < 0) return stopWith(L('None of these tracks can be played here: they are protected or not available in your region.'));
       } else {
         player.index = target;
         player.elapsed = 0;
-        return stopWith(lockedMsg());
+        return stopWith(lockedMsg(player.queue[target]));
       }
     }
     if (record && player.index >= 0 && player.index !== target) {
@@ -1614,11 +1639,17 @@
     audio.load();
   }
 
-  function audioFail(message, auth) {
+  function audioFail(message, auth, t) {
     player.loading = false;
     player.playing = false;
     player.error = L('Could not play this track: {0}', String(message || ''));
-    if (auth) { scForget(); scSchedule(); scRerender(); }
+    if (auth) {
+      const s = SVCS[(t && t.source) || 'soundcloud'] || sc;
+      scForget(s);
+      scSchedule();
+      s.error = L(TXT[s.id].expired);
+      scRerender();
+    }
     updatePlayer();
   }
 
@@ -1646,35 +1677,44 @@
     hls.attachMedia(audio);
   }
 
+  // у каждой платформы свой способ получить свежую ссылку на звук (она живёт недолго)
+  function streamOf(t) {
+    if (t.source === 'vk') { const api = vk.api(); return api && api.stream ? api.stream(t.vkId, t.hash) : null; }
+    const api = scApi();
+    return t.scId && api && api.stream ? api.stream(t.scId) : null;
+  }
+
   async function loadAudio(t) {
     const token = ++loadToken;
     stopAudio();
     player.error = '';
     player.loading = false;
-    const api = scApi();
-    if (!t || !t.scId || !api || !api.stream) return;
+    player.altUrl = '';
+    const pending = t ? streamOf(t) : null;
+    if (!pending) return;
     player.loading = true;
     updatePlayer();
     let r;
-    try { r = await api.stream(t.scId); } catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
+    try { r = await pending; } catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
     if (token !== loadToken) return;
-    if (r && !r.ok && r.drm) {
-      t.drm = true;
+    if (r && !r.ok && r.lock) {            // выяснилось, что трек не сыграть: замок остаётся и после перезапуска
+      rememberLock(t, r.lock);
       renderContent();
       if (player.advance) return next();   // шли по очереди: идём дальше
-      return stopWith(lockedMsg());
+      return stopWith(lockedMsg(t));
     }
-    if (!r || !r.ok) return audioFail(r && r.error, r && r.auth);
+    if (!r || !r.ok) return audioFail(r && r.error, r && r.auth, t);
+    player.altUrl = r.alt || '';           // запасная ссылка того же трека (у VK бывает)
     try {
-      if (r.protocol === 'hls') await attachHls(r.url, token);
+      if (r.protocol === 'hls' || (r.hls && !r.url)) await attachHls(r.url || r.hls, token);
       else audio.src = r.url;
     } catch (e) {
-      if (token === loadToken) audioFail(e.message);
+      if (token === loadToken) audioFail(e.message, false, t);
       return;
     }
     if (token !== loadToken) return;
     player.loading = false;
-    if (player.playing) audio.play().catch((e) => { if (token === loadToken) audioFail(e.message); });
+    if (player.playing) audio.play().catch((e) => { if (token === loadToken) audioFail(e.message, false, t); });
     updatePlayer();
   }
 
@@ -1689,14 +1729,31 @@
   });
   audio.addEventListener('ended', () => onTrackEnd());
   audio.addEventListener('error', () => {
-    if (audio.getAttribute('src')) audioFail(audio.error ? audio.error.message || 'media error' : 'media error');
+    if (!audio.getAttribute('src')) return;
+    if (player.altUrl) {   // основная ссылка не открылась: пробуем запасную
+      const alt = player.altUrl;
+      player.altUrl = '';
+      audio.src = alt;
+      if (player.playing) audio.play().catch(() => {});
+      return;
+    }
+    audioFail(audio.error ? audio.error.message || 'media error' : 'media error', false, current());
   });
 
-  /* ---------- SoundCloud ---------- */
-  // Вход и запросы к SoundCloud выполняет основной процесс (soundcloud.js). Сюда приходят только готовые списки.
-  const sc = { connected: false, busy: false, loading: false, syncing: false, error: '', user: null, mode: null, sig: '' };
-  const SC_CACHE = 'music-player-soundcloud-cache';
-  const scApi = () => (window.api && window.api.soundcloud) || null;
+  /* ---------- Подключаемые сервисы: SoundCloud и VK Музыка ---------- */
+  // Вход и запросы выполняет основной процесс (soundcloud.js, vk.js). Сюда приходят только готовые списки,
+  // поэтому у обоих сервисов одна и та же логика: вход, загрузка, фоновое обновление, выход. Различаются тексты и звук.
+  const makeSvc = (id, apiName) => ({ id, api: () => (window.api && window.api[apiName]) || null, cache: `music-player-${id}-cache`,
+                                      connected: false, busy: false, loading: false, syncing: false, error: '', user: null, mode: null, sig: '' });
+  const sc = makeSvc('soundcloud', 'soundcloud');
+  const vk = makeSvc('vk', 'vk');
+  const SVCS = { soundcloud: sc, vk };
+  const TXT = {
+    soundcloud: { connect: 'Connect SoundCloud', loading: 'Loading your SoundCloud library…', synced: 'Library synced with SoundCloud.', expired: 'Your SoundCloud session expired. Connect again.' },
+    vk:         { connect: 'Connect VK Music',   loading: 'Loading your VK Music library…',   synced: 'Library synced with VK Music.',   expired: 'Your VK Music session expired. Connect again.' },
+  };
+  const LIB_V = 4;   // версия формата библиотеки SoundCloud: у кэша старой версии нет полей, нужных страницам и замкам
+  const scApi = () => sc.api();
   const scErrorText = (e) => String(e || '');
 
   function scRerender() {
@@ -1706,104 +1763,112 @@
     if (!$('overlay').hidden && ui.section === 'accounts' && !typing) renderBody(true);
   }
 
-  function scForget() {
-    sc.connected = false;
-    sc.user = null;
-    DATA.soundcloud = emptyData();
+  function scForget(s) {
+    s.connected = false;
+    s.user = null;
+    s.sig = '';
+    DATA[s.id] = emptyData();
     rebuildAll();
-    try { localStorage.removeItem(SC_CACHE); } catch (e) { /* ничего */ }
+    try { localStorage.removeItem(s.cache); } catch (e) { /* ничего */ }
   }
 
-  async function scInit() {
-    const api = scApi();
+  async function scInit(s) {
+    const api = s.api();
     if (!api) return;
     try {
       const st = await api.status();
-      sc.connected = !!st.connected;
-      sc.mode = st.mode;
+      s.connected = !!st.connected;
+      s.mode = st.mode;
     } catch (e) { return; }
-    if (!sc.connected) return scRerender();
+    if (!s.connected) return scRerender();
     try { // сначала показываем сохранённую копию, чтобы приложение не пустовало, пока грузится свежая библиотека
-      const cached = JSON.parse(localStorage.getItem(SC_CACHE) || 'null');
-      if (cached && Array.isArray(cached.liked) && Array.isArray(cached.recent)) { sc.user = cached.me; applyLibrary(cached); sc.sig = cached.v === 3 ? libSig(cached) : ''; }
+      const cached = JSON.parse(localStorage.getItem(s.cache) || 'null');
+      if (cached && Array.isArray(cached.liked) && Array.isArray(cached.recent)) {
+        s.user = cached.me;
+        applyLibrary(s.id, cached);
+        s.sig = s.id !== 'soundcloud' || cached.v === LIB_V ? libSig(cached) : '';
+      }
     } catch (e) { /* копии нет */ }
     scSchedule();
-    scRefresh();
+    scRefresh(s);
   }
 
   // подпись только по составу списков: счётчики прослушиваний меняются постоянно и не должны каждый раз перерисовывать экран
-  const libSig = (l) => JSON.stringify([l.v, ['recent', 'recommended', 'liked'].map((k) => l[k].map((x) => x.scId)),
-    l.playlists.map((p) => [p.scId, p.url, p.name, p.count]), l.following.map((u) => [u.scId, u.url])]);
+  const keyOf = (x) => x.scId || x.vkId;
+  const libSig = (l) => JSON.stringify([l.v || 0, ['recent', 'recommended', 'liked'].map((k) => l[k].map(keyOf)),
+    l.playlists.map((p) => [p.scId || 0, p.url, p.name, p.count]), l.following.map((u) => [u.scId || 0, u.url])]);
 
   // quiet = фоновая синхронизация: без «загрузки» на экране, перерисовка только если в библиотеке что-то изменилось
-  async function scRefresh(quiet) {
-    const api = scApi();
-    if (!api || sc.loading || sc.syncing) return;
-    if (quiet) sc.syncing = true;
-    else { sc.loading = true; sc.error = ''; scRerender(); }
+  async function scRefresh(s, quiet) {
+    const api = s.api();
+    if (!api || s.loading || s.syncing) return;
+    if (quiet) s.syncing = true;
+    else { s.loading = true; s.error = ''; scRerender(); }
     let r;
     try { r = await api.library(); } catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
-    sc.loading = false;
-    sc.syncing = false;
+    s.loading = false;
+    s.syncing = false;
     if (r && r.ok) {
-      const changed = libSig(r.library) !== sc.sig;
-      sc.connected = true;
-      sc.user = r.library.me;
-      if (changed) { applyLibrary(r.library); sc.sig = libSig(r.library); }
-      try { localStorage.setItem(SC_CACHE, JSON.stringify(r.library)); } catch (e) { /* не влезло, не страшно */ }
+      const changed = libSig(r.library) !== s.sig;
+      s.connected = true;
+      s.user = r.library.me;
+      if (changed) { applyLibrary(s.id, r.library); s.sig = libSig(r.library); }
+      try { localStorage.setItem(s.cache, JSON.stringify(r.library)); } catch (e) { /* не влезло, не страшно */ }
       if (changed || !quiet) scRerender();
     } else if (r && r.auth) {
-      scForget();
+      scForget(s);
       scSchedule();
-      sc.error = L('Your SoundCloud session expired. Connect again.');
+      s.error = L(TXT[s.id].expired);
       scRerender();
     } else if (!quiet) {
-      sc.error = L('Could not load the library: {0}', scErrorText(r && r.error));
+      s.error = L('Could not load the library: {0}', scErrorText(r && r.error));
       scRerender();
     }
   }
 
-  // автосинхронизация: пока приложение открыто, раз в N минут тихо обновляем библиотеку
+  // автосинхронизация: пока приложение открыто, раз в N минут тихо обновляем библиотеки подключённых сервисов
   let syncTimer = null;
   function scSchedule() {
     clearInterval(syncTimer);
     syncTimer = null;
-    if (!settings.autoSync || !sc.connected) return;
-    syncTimer = setInterval(() => scRefresh(true), Math.max(1, settings.syncEvery) * 60 * 1000);
+    if (!settings.autoSync || !Object.values(SVCS).some((s) => s.connected)) return;
+    syncTimer = setInterval(() => Object.values(SVCS).forEach((s) => { if (s.connected) scRefresh(s, true); }), Math.max(1, settings.syncEvery) * 60 * 1000);
   }
 
-  async function scConnect() {
-    const api = scApi();
-    if (!api || sc.busy) return;
-    sc.busy = true;
-    sc.error = '';
+  async function scConnect(s) {
+    const api = s.api();
+    if (!api || s.busy) return;
+    s.busy = true;
+    s.error = '';
     scRerender();
     let r;
     try { r = await api.login(); } catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
-    sc.busy = false;
+    s.busy = false;
     if (r && r.ok) {
-      sc.connected = true;
+      s.connected = true;
       scSchedule();
-      return scRefresh();
+      return scRefresh(s);
     }
-    if (r && !r.cancelled) sc.error = L('Sign-in failed: {0}', scErrorText(r.error));
+    if (r && !r.cancelled) s.error = L('Sign-in failed: {0}', scErrorText(r.error));
     scRerender();
   }
 
-  async function scDisconnect() {
-    const api = scApi();
+  async function scDisconnect(s) {
+    const api = s.api();
     if (!api) return;
     try { await api.logout(); } catch (e) { /* ничего */ }
-    scForget();
+    scForget(s);
     scSchedule();
-    sc.error = '';
+    s.error = '';
     scRerender();
   }
 
-  function scAction(a) {
-    if (a === 'connect') scConnect();
-    else if (a === 'refresh') scRefresh();
-    else if (a === 'disconnect') scDisconnect();
+  // кнопки с data-sc="действие" и data-svc="сервис" (без data-svc это SoundCloud)
+  function scAction(a, svcId) {
+    const s = SVCS[svcId] || sc;
+    if (a === 'connect') scConnect(s);
+    else if (a === 'refresh') scRefresh(s);
+    else if (a === 'disconnect') scDisconnect(s);
   }
 
   /* ---------- Страницы: трек, исполнитель, плейлист и альбом ---------- */
@@ -1848,7 +1913,7 @@
       catch (e) { pages.set(key, { status: 'error', error: String((e && e.message) || e) }); }
     } else {
       pages.set(key, { status: 'error', error: String((r && r.error) || 'Unknown error') });
-      if (r && r.auth) { scForget(); scSchedule(); sc.error = L('Your SoundCloud session expired. Connect again.'); }
+      if (r && r.auth) { scForget(sc); scSchedule(); sc.error = L(TXT.soundcloud.expired); }
     }
     if (viewKey(state.view) === key) { renderTitlebar(); scRerender(); }
   }
@@ -1873,16 +1938,17 @@
 
   function playlistCard(pl) {
     const sub = [state.platform === 'all' ? platform(pl.source).name : '', pl.isAlbum ? L('Album') : '', L('{0} tr.', pl.count)].filter(Boolean).join(', ');
+    const open = pl.source === 'soundcloud';   // страницы плейлистов есть только у SoundCloud
     return `
-      <div class="card" data-open="playlist" ${refAttrs(pl.source, pl.scId, pl.url)}>
-        <div class="cover" style="background:${esc(coverBg(pl.name, pl.art))}"><span class="fab">${I.play}</span></div>
+      <div class="card" ${open ? `data-open="playlist" ${refAttrs(pl.source, pl.scId, pl.url)}` : ''}>
+        <div class="cover" style="background:${esc(coverBg(pl.name, pl.art))}">${open ? `<span class="fab">${I.play}</span>` : ''}</div>
         <div class="card-title"><span class="t-text">${esc(pl.name)}</span></div>
         <div class="card-sub">${esc(sub)}</div>
       </div>`;
   }
 
   const userCard = (u) => `
-      <div class="card artist" data-open="artist" ${refAttrs(u.source, u.scId, u.url)}>
+      <div class="card artist" ${u.source === 'soundcloud' ? `data-open="artist" ${refAttrs(u.source, u.scId, u.url)}` : ''}>
         <div class="cover" style="background:${esc(coverBg(u.name, u.art))}"></div>
         <div class="card-title"><span class="t-text">${esc(u.name)}</span></div>
         ${u.followers ? `<div class="card-sub">${esc(L('{0} followers', fmtNum(u.followers)))}</div>` : ''}
@@ -1934,9 +2000,9 @@
       kind: L('Track'), cover: t.artBig || t.art, title: t.title,
       sub: [artistLink(t), t.genre && esc(t.genre), yearOf(t.date)].filter(Boolean).join(' · '),
       stats,
-      actions: (t.drm ? '' : playShuffle(false)) + actBtn('like', liked ? I.heartFill : I.heart, L(liked ? 'Liked' : 'Like')) + artistBtn + extBtn(t.source),
+      actions: (t.lock ? '' : playShuffle(false)) + actBtn('like', liked ? I.heartFill : I.heart, L(liked ? 'Liked' : 'Like')) + artistBtn + extBtn(t.source),
     })
-      + (t.drm ? `<div class="section"><div class="notice"><p><b>${L('Protected track')}</b>${esc(lockedMsg())}</p></div></div>` : '')
+      + (t.lock ? `<div class="section"><div class="notice"><p><b>${L(t.lock === 'region' ? 'Not available' : 'Protected track')}</b>${esc(lockedMsg(t))}</p></div></div>` : '')
       + aboutHtml(t.desc)
       + (t.tags && t.tags.length ? sectionHtml(L('Tags'), `<div class="chips">${t.tags.map((x) => `<span class="chip">${esc(x)}</span>`).join('')}</div>`) : '')
       + (d.related.length ? sectionHtml(L('Related tracks'), trackList(d.related)) : '');
@@ -2019,7 +2085,7 @@
       } else {
         remoteSearch.status = 'error';
         remoteSearch.error = String((r && r.error) || 'Unknown error');
-        if (r && r.auth) { scForget(); scSchedule(); sc.error = L('Your SoundCloud session expired. Connect again.'); }
+        if (r && r.auth) { scForget(sc); scSchedule(); sc.error = L(TXT.soundcloud.expired); }
       }
       if (state.query === q) scRerender();
     }, 450);
@@ -2115,7 +2181,7 @@
 
   $('content').addEventListener('click', (e) => {
     const scBtn = e.target.closest('[data-sc]');
-    if (scBtn) return scAction(scBtn.dataset.sc);
+    if (scBtn) return scAction(scBtn.dataset.sc, scBtn.dataset.svc);
     const act = e.target.closest('[data-act]');
     if (act) return pageAction(act);
     // ссылки на страницы (название, исполнитель, карточки плейлистов и исполнителей) перехватывают клик раньше, чем строка трека
@@ -2212,7 +2278,7 @@
     if (op) return openSupportLink((supportCfg.links[Number(op.dataset.open)] || {}).url);
 
     const scBtn = t.closest('[data-sc]');
-    if (scBtn) return scAction(scBtn.dataset.sc);
+    if (scBtn) return scAction(scBtn.dataset.sc, scBtn.dataset.svc);
 
     const act = t.closest('[data-action]');
     if (act) return runAction(act);
@@ -2401,7 +2467,7 @@
   // сначала подгружаем языки, потом рисуем интерфейс: так при запуске не мелькает русский текст
   const boot = () => { renderWindowControls(); renderAll(); updatePlayer(); };
   loadLocales().then(boot, boot);
-  scInit();
+  Object.values(SVCS).forEach(scInit);
   if (window.api && window.api.appInfo) Promise.resolve(window.api.appInfo()).then((i) => { info = i || {}; }).catch(() => {});
   if (window.api && window.api.getWallpaper) {
     Promise.resolve(window.api.getWallpaper()).then((w) => { wallpaper = w || null; wp.bitmap = null; applyTheme(); }).catch(() => {});

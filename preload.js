@@ -33,6 +33,15 @@ contextBridge.exposeInMainWorld('api', {
   },
 
 
+  // VK Музыка: вход через окно сайта; cookie остаются в основном процессе
+  vk: {
+    status: () => ipcRenderer.invoke('vk:status'),
+    login: () => ipcRenderer.invoke('vk:login'),
+    logout: () => ipcRenderer.invoke('vk:logout'),
+    library: () => ipcRenderer.invoke('vk:library'),
+    stream: (vkId, hash) => ipcRenderer.invoke('vk:stream', vkId, hash), // свежая ссылка на звук трека
+  },
+
   // языки интерфейса из локальной папки locales
   listLocales: () => ipcRenderer.invoke('locales:list'),
   openLocalesFolder: () => ipcRenderer.invoke('locales:open-folder'),

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
@@ -143,6 +143,8 @@ function createWindow() {
 
 // SoundCloud: вход и загрузка библиотеки (подробности в soundcloud.js)
 require('./soundcloud').register(ipcMain, winOf);
+// VK Музыка: вход через окно vk.com и загрузка библиотеки (подробности в vk.js)
+require('./vk').register(ipcMain, winOf);
 
 /* ---------- Кнопки окна ---------- */
 ipcMain.on('win:minimize', (e) => { const w = winOf(e); if (w) w.minimize(); });
@@ -227,6 +229,13 @@ app.whenReady().then(() => {
       secureDnsServers: ['https://cloudflare-dns.com/dns-query', 'https://dns.google/dns-query'],
     });
   } catch (e) { /* ничего */ }
+  // hls.js читает звук VK через XHR, а сервера VK не разрешают это странице из файла: добавляем разрешение к их ответам
+  session.defaultSession.webRequest.onHeadersReceived({ urls: ['https://*.vkuser.net/*', 'https://*.vkuseraudio.net/*', 'https://*.vkuseraudio.ru/*', 'https://*.vk-cdn.net/*'] }, (d, done) => {
+    const h = { ...d.responseHeaders };
+    Object.keys(h).filter((k) => /^access-control-allow-origin$/i.test(k)).forEach((k) => delete h[k]);
+    h['Access-Control-Allow-Origin'] = ['*'];
+    done({ responseHeaders: h });
+  });
   createWindow();
 });
 
