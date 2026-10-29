@@ -573,16 +573,21 @@
   const srcIcon = (src, size) =>
     `<span class="src-ico ${size}" style="${srcVars(src)}" title="${esc(src.name)}">${I[src.icon]}</span>`;
 
+  // трек, у которого есть только защищённый поток: показываем замок и не пытаемся играть
+  const locked = (t) => !!(t && t.drm);
+  const lockIcon = (t) => (t.drm ? `<span class="lock-ico" title="${esc(L('Protected (DRM): cannot be played here'))}">${I.lock}</span>` : '');
+  const lockedMsg = () => L('This track is protected (DRM) and cannot be played here. Open it on SoundCloud.');
+
   const trackRow = (t) => {
     const src = platform(t.source);
     const mode = markMode();
     const cls = mode === 'icon' ? 'with-ico' : mode === 'label' ? 'with-src' : '';
     return `
-      <div class="track ${cls} ${current() && current().id === t.id ? 'playing' : ''}" data-track="${t.id}">
+      <div class="track ${cls} ${t.drm ? 'locked' : ''} ${current() && current().id === t.id ? 'playing' : ''}" data-track="${t.id}">
         ${mode === 'icon' ? srcIcon(src, '') : ''}
         <div class="mini" style="background:${esc(coverBg(t.title + t.artist, t.art))}"><span class="ico">${I.play}</span></div>
         <div class="t-meta">
-          <div class="t-title">${mode === 'title' ? srcIcon(src, 'sm') : ''}${titleLink(t)}</div>
+          <div class="t-title">${mode === 'title' ? srcIcon(src, 'sm') : ''}${titleLink(t)}${lockIcon(t)}</div>
           <div class="t-artist">${artistLink(t)}</div>
         </div>
         ${mode === 'label' ? `<div class="src" style="${srcVars(src)}"><i class="dot"></i>${esc(src.name)}</div>` : ''}
@@ -594,12 +599,12 @@
     const src = platform(t.source);
     const mode = markMode();
     return `
-      <div class="card ${mode === 'label' ? 'with-label' : ''}" data-track="${t.id}">
+      <div class="card ${mode === 'label' ? 'with-label' : ''} ${t.drm ? 'locked' : ''}" data-track="${t.id}">
         <div class="cover" style="background:${esc(coverBg(t.title + t.artist, t.art))}">
           ${mode === 'icon' ? `<span class="cover-ico" style="${srcVars(src)}" title="${esc(src.name)}">${I[src.icon]}</span>` : ''}
           <span class="fab">${I.play}</span>
         </div>
-        <div class="card-title">${mode === 'title' ? srcIcon(src, 'sm') : ''}${titleLink(t)}</div>
+        <div class="card-title">${mode === 'title' ? srcIcon(src, 'sm') : ''}${titleLink(t)}${lockIcon(t)}</div>
         <div class="card-sub">${artistLink(t)}</div>
         ${mode === 'label' ? `<div class="card-src" style="${srcVars(src)}"><i class="dot"></i>${esc(src.name)}</div>` : ''}
       </div>`;
@@ -1496,9 +1501,41 @@
     syncHero();
   }
 
-  function playAt(index, record = true) {
+  // ближайший трек, который можно играть: идём от start в сторону dir, по кругу
+  function findPlayable(start, dir) {
+    const n = player.queue.length;
+    for (let k = 0; k < n; k++) {
+      const i = (((start + dir * k) % n) + n) % n;
+      if (!locked(player.queue[i])) return i;
+    }
+    return -1;
+  }
+
+  // играть нечего: останавливаемся и объясняем почему
+  function stopWith(message) {
+    loadToken++;
+    stopAudio();
+    player.loading = false;
+    player.playing = false;
+    player.error = message;
+    updatePlayer();
+  }
+
+  // player.advance: переход сделала очередь (следующий, предыдущий, «Играть» на странице), а не прямой клик по треку.
+  // Очередь закрытые треки пропускает, а прямой клик по такому треку объясняет, почему он не играет.
+  function playAt(index, record = true, dir = 1) {
     if (!player.queue.length) return;
-    const target = (index + player.queue.length) % player.queue.length;
+    let target = (index + player.queue.length) % player.queue.length;
+    if (locked(player.queue[target])) {
+      if (player.advance) {
+        target = findPlayable(target, dir);
+        if (target < 0) return stopWith(L('None of these tracks can be played here: they are protected (DRM).'));
+      } else {
+        player.index = target;
+        player.elapsed = 0;
+        return stopWith(lockedMsg());
+      }
+    }
     if (record && player.index >= 0 && player.index !== target) {
       player.history.push(player.index);
       if (player.history.length > 100) player.history.shift();
@@ -1522,26 +1559,26 @@
   }
 
   function next() {
+    player.advance = true;
     if (player.shuffle && player.queue.length > 1) {
-      let i;
-      do { i = Math.floor(Math.random() * player.queue.length); } while (i === player.index);
-      playAt(i);
-    } else {
-      playAt(player.index + 1);
+      const pool = player.queue.map((_t, i) => i).filter((i) => i !== player.index && !locked(player.queue[i]));
+      if (pool.length) return playAt(pool[Math.floor(Math.random() * pool.length)]);
     }
+    playAt(player.index + 1, true, 1);
   }
 
   function prev() {
-    if (player.elapsed > 3) playAt(player.index);                 // сначала перематываем текущий трек в начало
-    else if (player.history.length) playAt(player.history.pop(), false);
-    else playAt(player.index - 1, false);
+    player.advance = true;
+    if (player.elapsed > 3 && !locked(current())) playAt(player.index);   // сначала перематываем текущий трек в начало
+    else if (player.history.length) playAt(player.history.pop(), false, -1);
+    else playAt(player.index - 1, false, -1);
   }
 
   // трек доиграл сам
   function onTrackEnd() {
     if (player.repeat === 'one') { player.elapsed = 0; audio.currentTime = 0; audio.play().catch(() => {}); updatePlayer(); return; }
     if (!settings.autoplay) { player.playing = false; player.elapsed = 0; audio.currentTime = 0; updatePlayer(); return; }
-    const isLast = player.index === player.queue.length - 1;
+    const isLast = !player.queue.slice(player.index + 1).some((t) => !locked(t));   // дальше нечего играть (закрытые не в счёт)
     if (isLast && !player.shuffle && player.repeat === 'off') {
       player.playing = false;
       player.elapsed = 0;
@@ -1553,7 +1590,8 @@
   }
 
   function playTrack(id) {
-    if (current() && current().id === id) return toggle();
+    if (current() && current().id === id) return locked(current()) ? undefined : toggle();
+    player.advance = false;
     player.queue = visibleTracks.slice();
     player.history = [];
     player.index = -1;   // другой список: номер мог совпасть с прежним, и звук остался бы от старого трека
@@ -1620,6 +1658,12 @@
     let r;
     try { r = await api.stream(t.scId); } catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
     if (token !== loadToken) return;
+    if (r && !r.ok && r.drm) {
+      t.drm = true;
+      renderContent();
+      if (player.advance) return next();   // шли по очереди: идём дальше
+      return stopWith(lockedMsg());
+    }
     if (!r || !r.ok) return audioFail(r && r.error, r && r.auth);
     try {
       if (r.protocol === 'hls') await attachHls(r.url, token);
@@ -1681,7 +1725,7 @@
     if (!sc.connected) return scRerender();
     try { // сначала показываем сохранённую копию, чтобы приложение не пустовало, пока грузится свежая библиотека
       const cached = JSON.parse(localStorage.getItem(SC_CACHE) || 'null');
-      if (cached && Array.isArray(cached.liked) && Array.isArray(cached.recent)) { sc.user = cached.me; applyLibrary(cached); sc.sig = cached.v === 2 ? libSig(cached) : ''; }
+      if (cached && Array.isArray(cached.liked) && Array.isArray(cached.recent)) { sc.user = cached.me; applyLibrary(cached); sc.sig = cached.v === 3 ? libSig(cached) : ''; }
     } catch (e) { /* копии нет */ }
     scSchedule();
     scRefresh();
@@ -1890,8 +1934,9 @@
       kind: L('Track'), cover: t.artBig || t.art, title: t.title,
       sub: [artistLink(t), t.genre && esc(t.genre), yearOf(t.date)].filter(Boolean).join(' · '),
       stats,
-      actions: playShuffle(false) + actBtn('like', liked ? I.heartFill : I.heart, L(liked ? 'Liked' : 'Like')) + artistBtn + extBtn(t.source),
+      actions: (t.drm ? '' : playShuffle(false)) + actBtn('like', liked ? I.heartFill : I.heart, L(liked ? 'Liked' : 'Like')) + artistBtn + extBtn(t.source),
     })
+      + (t.drm ? `<div class="section"><div class="notice"><p><b>${L('Protected track')}</b>${esc(lockedMsg())}</p></div></div>` : '')
       + aboutHtml(t.desc)
       + (t.tags && t.tags.length ? sectionHtml(L('Tags'), `<div class="chips">${t.tags.map((x) => `<span class="chip">${esc(x)}</span>`).join('')}</div>`) : '')
       + (d.related.length ? sectionHtml(L('Related tracks'), trackList(d.related)) : '');
@@ -1924,7 +1969,7 @@
     return heroHtml({
       kind: L(p.isAlbum ? 'Album' : 'Playlist'), cover: p.artBig || p.art, title: p.name,
       sub: [artistLink(p), p.isAlbum && yearOf(p.date)].filter(Boolean).join(' · '),
-      stats: [L('{0} tr.', d.tracks.length || p.count), total ? fmtLong(total) : ''].filter(Boolean).join(' · '),
+      stats: [L('{0} tr.', d.tracks.length || p.count), total ? fmtLong(total) : '', d.tracks.some(locked) ? L('{0} unavailable', d.tracks.filter(locked).length) : ''].filter(Boolean).join(' · '),
       actions: playShuffle(true) + extBtn(p.source),
     })
       + aboutHtml(p.desc)
@@ -2017,7 +2062,8 @@
 
   function playAll(shuffle) {
     if (!visibleTracks.length) return;
-    if (!shuffle && current() && visibleTracks.some((x) => x.id === current().id)) return toggle();
+    if (!shuffle && current() && !locked(current()) && visibleTracks.some((x) => x.id === current().id)) return toggle();
+    player.advance = true;
     player.queue = visibleTracks.slice();
     player.history = [];
     player.index = -1;

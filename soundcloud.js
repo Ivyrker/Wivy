@@ -68,6 +68,7 @@ function toTrack(t) {
     likes: t.likes_count || t.favoritings_count || 0,
     date: String(t.release_date || t.created_at || t.display_date || ''),
     genre: String(t.genre || ''),
+    drm: drmOnly(t),   // есть только защищённые потоки: в этом окне такой трек не сыграть
   };
 }
 // элемент списка бывает самим треком ({title…}), обёрткой ({track}) или событием ленты ({type, origin})
@@ -126,7 +127,7 @@ async function fetchLibrary(get) {
   const tracks = (list) => uniq(list.map(trackOf), (t) => t.scId);
   return {
     me: { name: String(me.username || me.full_name || ''), avatar: art(me.avatar_url), url: String(me.permalink_url || '') },
-    v: 2,                                          // версия формата списков (в кэше интерфейса)
+    v: 3,                                          // версия формата списков (в кэше интерфейса)
     updated: Date.now(),
     recent: tracks(recent),
     recommended: tracks(recommended),
@@ -252,6 +253,11 @@ const isPlayable = (x) => {
   const m = String(x.format.mime_type || '');
   return p === 'progressive' || (p === 'hls' && /mpeg|mp4|aac/i.test(m));
 };
+// у трека описаны потоки, и среди них нет ни одного, который можно играть (записи лейблов бывают только такими)
+const drmOnly = (t) => {
+  const list = ((t && t.media && t.media.transcodings) || []).filter((x) => x && x.format);
+  return list.length > 0 && !list.some(isPlayable);
+};
 const describe = (x) => `${x.format.protocol} ${x.format.mime_type || '?'}${x.snipped ? ' (preview)' : ''}`;
 
 async function reachable(url) {
@@ -285,7 +291,7 @@ async function resolveStream(get, trackId) {
   // в терминале видно, какие варианты были у трека и почему ни один не подошёл
   log('no playable stream for track', trackId, '| available:', all.map(describe).join(', ') || 'none', '| tried:', notes.join('; ') || 'nothing');
   if (!list.length && all.length) {
-    return { ok: false, error: 'Only protected or unsupported formats are available for this track (' + [...new Set(all.map((x) => x.format.protocol))].join(', ') + ')' };
+    return { ok: false, drm: true, error: 'Only protected or unsupported formats are available for this track (' + [...new Set(all.map((x) => x.format.protocol))].join(', ') + ')' };
   }
   return { ok: false, error: lastError ? lastError.message : 'No playable stream (the track may be restricted in your region)' };
 }

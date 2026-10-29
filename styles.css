@@ -1061,3 +1061,11 @@ button, input, select, textarea { text-shadow: inherit; }
 @media (max-width: 1100px) {
   .hero-cover { width: 160px; height: 160px; }
 }
+
+/* Треки, которые в этом окне не сыграть (только защищённый DRM-поток) */
+.lock-ico { display: inline-flex; flex-shrink: 0; color: var(--muted); }
+.lock-ico svg { width: 13px; height: 13px; }
+.track.locked .mini, .track.locked .t-meta, .track.locked .t-dur,
+.card.locked .cover, .card.locked .card-title, .card.locked .card-sub { opacity: .5; }
+.track.locked .mini .ico, .card.locked .fab { display: none; }
+
