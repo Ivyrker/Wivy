@@ -270,11 +270,15 @@
     return out;
   };
 
+  let likedKeys = new Set();   // треки из списков лайков платформ (ключ вида «vk:123_456»)
+
   // «Все треки» собираются из подключённых платформ
   function rebuildAll() {
     const parts = PLATFORMS.filter((p) => p.id !== 'all').map((p) => DATA[p.id]).filter((d) => d.connected);
     const mix = (key) => interleave(parts.map((d) => d[key]));
     DATA.all = { connected: parts.length > 0, recent: mix('recent'), recommended: mix('recommended'), liked: mix('liked'), playlists: mix('playlists'), following: mix('following') };
+    likedKeys = new Set();
+    PLATFORMS.filter((p) => p.id !== 'all').forEach((p) => DATA[p.id].liked.forEach((x) => likedKeys.add(trackKey(x.source, x))));
   }
 
   // Замок у трека (lock): 'drm' — только защищённые потоки, 'region' — закрыт для вашего региона или аккаунта.
@@ -298,6 +302,91 @@
   const mapEntityFor = (src) => (x) => ({ ...x, source: src });
   const mapTrack = mapTrackFor('soundcloud');
   const mapEntity = mapEntityFor('soundcloud');
+
+  // Лайки: правда лежит на сервисе. Приложение показывает то, что есть в списке лайков платформы, а ваш клик отправляет в её аккаунт.
+  // likeStore хранит только то, что ещё не подтвердилось: ждёт ответа сервера, а затем перезагрузки списка. Принял сервис, и запись исчезает
+  // (список уже говорит то же самое); отказал, и лайк откатывается с сообщением. Исключение — платформы, у которых в api нет метода like:
+  // их лайки живут только в приложении (local: true) и сохраняются между запусками.
+  const LIKES_KEY = 'music-player-likes';
+  let likeStore = {};   // ключ -> { on, at, track, sent, local }
+  try {
+    const raw = JSON.parse(localStorage.getItem(LIKES_KEY)) || {};
+    for (const [k, v] of Object.entries(raw)) if (v && v.local) likeStore[k] = v;   // записи прежних версий (без local) отбрасываем: решает сервис
+  } catch (e) { likeStore = {}; }
+  const saveLikes = () => {
+    const mine = Object.fromEntries(Object.entries(likeStore).filter(([, v]) => v.local));
+    try { localStorage.setItem(LIKES_KEY, JSON.stringify(mine)); } catch (e) { /* ничего */ }
+  };
+  const likeKey = (t) => trackKey(t.source, t);
+  const isLiked = (t) => {
+    if (!t) return false;
+    const v = likeStore[likeKey(t)];
+    return v ? !!v.on : likedKeys.has(likeKey(t));
+  };
+  const SNAP = ['scId', 'vkId', 'hash', 'trackCode', 'title', 'artist', 'artistId', 'artistUrl', 'dur', 'art', 'url'];
+  const snapshot = (t) => Object.fromEntries(SNAP.filter((f) => t[f] !== undefined).map((f) => [f, t[f]]).concat([['source', t.source]]));
+  const likeApi = (src) => { const s = SVCS[src]; const api = s ? s.api() : null; return api && api.like ? api : null; };
+
+  function toggleLike(t) {
+    const on = !isLiked(t);
+    const at = Date.now();
+    const local = !likeApi(t.source);
+    likeStore[likeKey(t)] = { on, at, track: snapshot(t), sent: false, local };
+    saveLikes();
+    if (!local) sendLike(t, on, at);
+  }
+
+  // отправка лайка в аккаунт. Отказ откатывает лайк, успех запускает перезагрузку списка, и дальше решает она (reconcileLikes)
+  async function sendLike(t, on, at) {
+    const k = likeKey(t);
+    const s = SVCS[t.source];
+    const same = () => likeStore[k] && likeStore[k].at === at;
+    let r;
+    try { r = await likeApi(t.source).like({ scId: t.scId, vkId: t.vkId, hash: t.hash, trackCode: t.trackCode }, on); } catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
+    if (r && r.ok) {
+      if (same()) likeStore[k].sent = true;
+      verifyLater(s);
+      return;
+    }
+    if (same()) delete likeStore[k];   // сервис не принял: возвращаем то, что в его списке
+    if (r && r.auth) { scForget(s); scSchedule(); s.error = L(TXT[s.id].expired); updatePlayer(); return scRerender(); }
+    s.error = L('Could not sync the like with {0}: {1}', platform(s.id).name, scErrorText(r && r.error));
+    updatePlayer();
+    scRerender();
+  }
+
+  // список лайков перезагружается вскоре после отправки (серии кликов склеиваются в одну перезагрузку)
+  function verifyLater(s) {
+    clearTimeout(s.verifyTimer);
+    s.verifyTimer = setTimeout(() => scRefresh(s, true), 800);
+  }
+
+  // после загрузки библиотеки платформы: отправленные лайки сверяем со списком и убираем из likeStore. Если сервис их не применил, говорим об этом
+  function reconcileLikes(id, lib) {
+    const s = SVCS[id];
+    let notApplied = 0;
+    let settled = 0;
+    for (const [k, v] of Object.entries(likeStore)) {
+      if (k.split(':')[0] !== id || v.local || !v.sent) continue;
+      const server = likedKeys.has(k);
+      // отсутствие трека в обрезанном лимитом списке ничего не доказывает
+      if (v.on !== server && !(v.on && lib && lib.likedComplete === false)) notApplied++;
+      delete likeStore[k];
+      settled++;
+    }
+    if (notApplied) s.error = L('{0} did not apply {1} like change(s). The list now shows what is on the service.', platform(id).name, notApplied);
+    return settled;
+  }
+
+  // вкладка «Liked»: ждущие подтверждения и локальные лайки сверху; затем список платформы без ждущих снятий
+  function likedTracks(data) {
+    const have = new Set(data.liked.map(likeKey));
+    const mine = Object.entries(likeStore)
+      .filter(([k, v]) => v.on && v.track && !have.has(k) && (state.platform === 'all' || v.track.source === state.platform) && DATA[v.track.source] && DATA[v.track.source].connected)
+      .sort((a, b) => b[1].at - a[1].at)
+      .map(([, v]) => mapTrackFor(v.track.source)(v.track));
+    return mine.concat(data.liked.filter((x) => { const v = likeStore[likeKey(x)]; return !v || v.on; }));
+  }
 
   // id платформы: 'soundcloud' или 'vk'
   function applyLibrary(id, lib) {
@@ -336,7 +425,13 @@
 
   /* ---------- Хелперы ---------- */
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  // 3:05, а от часа 1:02:03 (минуты не превращаются в «62:03»)
+  const fmt = (s) => {
+    s = Number.isFinite(s) ? Math.max(0, Math.floor(s)) : 0;
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+    const pad = (n) => String(n).padStart(2, '0');
+    return h ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
+  };
   const cover = (seed) => {
     let h = 0;
     for (const ch of seed) h = (h * 31 + ch.charCodeAt(0)) % 360;
@@ -691,8 +786,9 @@
         ${more.length ? `<div class="section"><div class="section-title">${L('Recommended')}</div>${trackList(more)}</div>` : ''}
         ${recent.length || more.length ? '' : emptyHtml()}`;
     } else if (tab === 'liked') {
-      visibleTracks = data.liked;
-      el.innerHTML = `<div class="section"><div class="section-title">${L('Liked')}</div>${data.liked.length ? trackList(data.liked) : emptyHtml()}</div>`;
+      const likedList = likedTracks(data);
+      visibleTracks = likedList;
+      el.innerHTML = `<div class="section"><div class="section-title">${L('Liked')}</div>${likedList.length ? trackList(likedList) : emptyHtml()}</div>`;
     } else if (tab === 'playlists') {
       visibleTracks = [];
       el.innerHTML = `
@@ -1511,7 +1607,7 @@
     $('npSrc').innerHTML = src && mode === 'label' ? `<i class="dot"></i>${esc(src.name)}` : '';
     $('playBtn').innerHTML = player.playing ? I.pause : I.play;
     $('playBtn').title = L(player.playing ? 'Pause' : 'Play');
-    $('likeBtn').classList.toggle('on', !!t && player.liked.has(t.id));
+    $('likeBtn').classList.toggle('on', isLiked(t));
     $('npTitle').classList.toggle('lnk', !!(t && t.scId));
     $('npArtist').classList.toggle('lnk', !!(t && (t.artistId || t.artistUrl) && !player.error && !player.loading));
 
@@ -1752,7 +1848,7 @@
     soundcloud: { connect: 'Connect SoundCloud', loading: 'Loading your SoundCloud library…', synced: 'Library synced with SoundCloud.', expired: 'Your SoundCloud session expired. Connect again.' },
     vk:         { connect: 'Connect VK Music',   loading: 'Loading your VK Music library…',   synced: 'Library synced with VK Music.',   expired: 'Your VK Music session expired. Connect again.' },
   };
-  const LIB_V = 4;   // версия формата библиотеки SoundCloud: у кэша старой версии нет полей, нужных страницам и замкам
+  const LIB_V = { soundcloud: 4, vk: 2 };   // версия формата библиотеки: у кэша старой версии нет полей, нужных страницам и замкам
   const scApi = () => sc.api();
   const scErrorText = (e) => String(e || '');
 
@@ -1786,7 +1882,7 @@
       if (cached && Array.isArray(cached.liked) && Array.isArray(cached.recent)) {
         s.user = cached.me;
         applyLibrary(s.id, cached);
-        s.sig = s.id !== 'soundcloud' || cached.v === LIB_V ? libSig(cached) : '';
+        s.sig = cached.v === LIB_V[s.id] ? libSig(cached) : '';
       }
     } catch (e) { /* копии нет */ }
     scSchedule();
@@ -1801,7 +1897,8 @@
   // quiet = фоновая синхронизация: без «загрузки» на экране, перерисовка только если в библиотеке что-то изменилось
   async function scRefresh(s, quiet) {
     const api = s.api();
-    if (!api || s.loading || s.syncing) return;
+    if (!api) return;
+    if (s.loading || s.syncing) { if (quiet) s.again = true; return; }
     if (quiet) s.syncing = true;
     else { s.loading = true; s.error = ''; scRerender(); }
     let r;
@@ -1814,7 +1911,9 @@
       s.user = r.library.me;
       if (changed) { applyLibrary(s.id, r.library); s.sig = libSig(r.library); }
       try { localStorage.setItem(s.cache, JSON.stringify(r.library)); } catch (e) { /* не влезло, не страшно */ }
-      if (changed || !quiet) scRerender();
+      const settled = reconcileLikes(s.id, r.library);   // сколько ждущих лайков закрыла сверка
+      if (settled) updatePlayer();
+      if (changed || !quiet || settled) scRerender();
     } else if (r && r.auth) {
       scForget(s);
       scSchedule();
@@ -1824,6 +1923,7 @@
       s.error = L('Could not load the library: {0}', scErrorText(r && r.error));
       scRerender();
     }
+    if (s.again) { s.again = false; scRefresh(s, true); }
   }
 
   // автосинхронизация: пока приложение открыто, раз в N минут тихо обновляем библиотеки подключённых сервисов
@@ -1988,7 +2088,7 @@
   function trackPageHtml(d) {
     const t = d.track;
     visibleTracks = [t, ...d.related.filter((x) => x.id !== t.id)];
-    const liked = player.liked.has(t.id);
+    const liked = isLiked(t);
     const stats = [
       t.plays ? L('{0} plays', fmtNum(t.plays)) : '', t.likes ? L('{0} likes', fmtNum(t.likes)) : '',
       t.reposts ? L('{0} reposts', fmtNum(t.reposts)) : '', t.comments ? L('{0} comments', fmtNum(t.comments)) : '',
@@ -2146,7 +2246,7 @@
     else if (a === 'more') { state.expanded.add(btn.dataset.sect); renderContent(); }
     else if (a === 'retry') { pages.delete(viewKey(state.view)); renderContent(); }
     else if (a === 'like' && d && d.track) {
-      if (player.liked.has(d.track.id)) player.liked.delete(d.track.id); else player.liked.add(d.track.id);
+      toggleLike(d.track);
       updatePlayer();
       renderContent();
     } else if (a === 'ext' && d) {
@@ -2375,9 +2475,9 @@
   $('likeBtn').addEventListener('click', () => {
     const t = current();
     if (!t) return;
-    if (player.liked.has(t.id)) player.liked.delete(t.id);
-    else player.liked.add(t.id);
+    toggleLike(t);
     updatePlayer();
+    if (state.view || curTab() === 'liked') renderContent();   // список лайков и страница трека сразу показывают изменение
   });
 
   $('seek').addEventListener('input', (e) => {

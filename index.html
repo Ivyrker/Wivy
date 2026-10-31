@@ -61,7 +61,10 @@
 
       <div class="volume">
         <span id="volIcon"></span>
-        <input type="range" id="vol" min="0" max="100" value="70">
+        <div class="vol-wrap">
+          <div class="vol-tip" id="volTip" aria-hidden="true">70.0%</div>
+          <input type="range" id="vol" min="0" max="100" step="0.1" value="70">
+        </div>
       </div>
 
       <div class="np">

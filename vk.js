@@ -9,7 +9,7 @@ const fs = require('fs');
 const path = require('path');
 
 const PARTITION = 'persist:vk';                     // отдельное хранилище cookie для окна входа
-const LIMITS = { liked: 500, playlists: 100, recent: 12 };
+const LIMITS = { liked: 5000, playlists: 100, recent: 12 };   // лайков может быть и больше тысячи: потолок только от зависания
 
 class AuthError extends Error {}
 class NoLinkError extends Error {}   // VK не отдал ссылку на звук: трек закрыт для региона или аккаунта
@@ -72,14 +72,19 @@ function toTrack(a) {
     const imgs = JSON.stringify(a).match(/https:[^"\\,\s]+?\.(?:jpe?g|png|webp)(?:\?[^"\\,\s]*)?/gi) || [];
     for (const u of imgs.reverse()) { cover = art(u.replace(/\\\//g, '/')); if (cover) break; }
   }
+  // без хэша доступа (6 частей через «/») ссылку на звук получить нечем: такой трек VK не отдаёт (закрыт для региона, аккаунта или правообладателем)
+  const h = String(a[13] || '').split('/');
+  const playable = !!(h[2] && h[5]) || streamCache.has(`${a[1]}_${a[0]}`);
   return {
     vkId: `${a[1]}_${a[0]}`,
+    lock: playable ? '' : 'region',
     title: decode(a[3]),
     artist: decode(a[4]),
     dur: Number(a[5]) || 0,
     art: cover,
     url: `https://vk.com/audio${a[1]}_${a[0]}`,
     hash: String(a[13] || ''), // нужен для получения ссылки на звук (act=reload_audio)
+    trackCode: String(a[20] || ''), // служебный код трека: сайт передаёт его при добавлении и удалении
   };
 }
 
@@ -131,6 +136,7 @@ async function audioJson(host, form) {
 
 let sampleLogged = false;
 const streamCache = new Map();
+let flagsLogged = false;   // диагностику по флагам пишем один раз за запуск
 async function loadSection(host, uid, offset) {
   const { json, res, text } = await audioJson(host, {
     act: 'load_section', owner_id: String(uid), playlist_id: '-1', offset: String(offset), type: 'playlist', access_hash: '', is_loading_all: '1',
@@ -141,16 +147,21 @@ async function loadSection(host, uid, offset) {
     throw new Error('VK returned no track list (see the [VK] line in the terminal)');
   }
   if (!sampleLogged && d.list[0]) { sampleLogged = true; log('first track item:', JSON.stringify(d.list[0]).slice(0, 700)); } // чтобы видеть, где лежат обложки и хэши
+  const stat = new Map(); // значение поля [10] (флаги) -> [сколько треков со ссылкой, сколько без неё]
   for (const a of d.list) { // запоминаем прямые ссылки из списка: если reload_audio не даст ссылку, возьмём их
     const p = Array.isArray(a) ? pickStream(a) : null;
     if (p) streamCache.set(`${a[1]}_${a[0]}`, p);
+    if (Array.isArray(a)) { const s = stat.get(String(a[10])) || [0, 0]; s[p ? 0 : 1]++; stat.set(String(a[10]), s); }
   }
+  // если у каких-то треков в списке нет ссылки, по этой строке видно, не отличаются ли они флагами (так можно будет помечать закрытые заранее)
+  if (!flagsLogged && [...stat.values()].some((s) => s[1])) log('list flags [10] -> with link / without:', [...stat].map(([f, s]) => `${f}: ${s[0]}/${s[1]}`).join(', '));
+  flagsLogged = true;
   return d;
 }
 
 async function collectTracks(host, uid, limit) {
   const out = [];
-  for (let offset = 0, guard = 0; out.length < limit && guard < 5; guard++) {
+  for (let offset = 0, guard = 0; out.length < limit && guard < 40; guard++) {
     const d = await loadSection(host, uid, offset);
     out.push(...d.list.map(toTrack).filter(Boolean));
     if (!d.hasMore || !d.list.length) break;
@@ -176,10 +187,12 @@ async function fetchLibrary() {
   return {
     me: { name: name || 'id' + uid, avatar: '', url: `https://vk.com/id${uid}` },
     mode: 'web',
+    v: 2,                                          // версия формата списков (в кэше интерфейса): 2 — у треков есть поле lock
     updated: Date.now(),
     recent: liked.slice(0, LIMITS.recent), // у VK нет истории прослушиваний, поэтому здесь последние добавленные треки
     recommended: [],
     liked,
+    likedComplete: liked.length < LIMITS.liked,   // false: список обрезан лимитом, и отсутствие трека в нём ничего не доказывает
     playlists,
     following: [],
     warnings,
@@ -257,14 +270,20 @@ async function stream(vkId, hash) {
   if (!uid) throw new AuthError('Not signed in');
   const [owner, id] = String(vkId).split('_');
   const h = String(hash || '').split('/');
-  if (!owner || !id || !h[2] || !h[5]) throw new Error('No access hash for this track: refresh the library');
+  if (!owner || !id || !h[2] || !h[5]) {
+    // хэша нет: берём ссылку из списка, если она там была, иначе это закрытый трек
+    const cached = streamCache.get(String(vkId));
+    log('no access hash for track', vkId, '| hash =', JSON.stringify(String(hash || '').slice(0, 60)), cached ? '| using the link from the list' : '| no link in the list either');
+    if (cached) return { url: cached.url, alt: cached.alt, hls: '' };
+    throw new NoLinkError('This track is not available in your region or account');
+  }
   const { json, text } = await audioJson(host, { act: 'reload_audio', ids: [owner, id, h[2], h[5]].join('_') });
   const list = json && json.data && json.data[0];
   const item = Array.isArray(list) ? list[0] : null;
   let direct = item && pickStream(item);
   if (!direct) {
     const raw = item && item.find((x) => typeof x === 'string' && x.charCodeAt(0) === 123);
-    log('no audio_streams in reload_audio; item:', item ? item.map((x, i) => i + ':' + (typeof x === 'string' ? 's' + x.length : typeof x)).join(' ') : 'none', '| json:', raw ? raw.slice(0, 200) : '-');
+    log('no audio_streams in reload_audio; track', vkId, 'flags [10] =', item ? item[10] : '-', '| item:', item ? item.map((x, i) => i + ':' + (typeof x === 'string' ? 's' + x.length : typeof x)).join(' ') : 'none', '| json:', raw ? raw.slice(0, 200) : '-');
     direct = streamCache.get(String(vkId)) || null; // ссылка, полученная при загрузке списка (живёт около суток)
     if (direct) log('using the link from the library list');
   }
@@ -278,6 +297,126 @@ async function stream(vkId, hash) {
   if (!direct) throw new NoLinkError('This track is not available in your region or account');
   log('stream:', direct.type, new URL(direct.url).hostname);
   return { url: direct.url, alt: direct.alt, hls: '' };
+}
+
+/* ---------- Лайки ---------- */
+// «Лайк» в VK — это аудиозапись в вашем списке: лайк добавляет трек (или возвращает только что удалённый), снятие лайка удаляет.
+// Запросы VK не документирует. Хэши трека через «/»: 0 — добавить, 3 — удалить, 6 — вернуть удалённое.
+// Прямой запрос на al_audio.php VK принимает не всегда (отвечает «перейдите на страницу /audio»), поэтому если он не прошёл, то же самое
+// делается изнутри скрытой страницы vk.com/audio её собственным ajax.post, с хэшами из списка, который загрузила эта же страница.
+// Принял ли VK изменение на самом деле, решает не этот ответ, а список, который приложение перезагружает следом.
+const HASH_AT = { add: 0, delete_audio: 3, restore_audio: 6 };
+
+function likeForm(track, on) {
+  const [owner, id] = String((track && track.vkId) || '').split('_');
+  if (!/^-?\d+$/.test(owner || '') || !/^\d+$/.test(id || '')) throw new Error('Bad track id');
+  const hashes = String((track && track.hash) || '').split('/');
+  const act = on ? (hashes[0] ? 'add' : 'restore_audio') : 'delete_audio';
+  const hash = hashes[HASH_AT[act]];
+  if (!hash) throw new Error('No hash for this action: refresh the library');
+  const trackCode = String((track && track.trackCode) || '');
+  const form = { al: '1', act, hash, oid: owner, aid: id };
+  if (act === 'add') Object.assign(form, { group_id: '0', gid: '0', album_id: '-2', owner_id: owner, audio_id: id });
+  if (act === 'delete_audio') form.restore = '1';
+  if (trackCode) form.track_code = trackCode;
+  return { form, act, owner, id, hashes, trackCode, key: `${owner}_${id}` };
+}
+const payloadCode = (json) => (json && Array.isArray(json.payload) ? json.payload[0] : undefined);
+
+// выполняется внутри страницы vk.com/audio
+function inVkPage(want) {
+  return new Promise((resolve) => {
+    let finished = false;
+    const done = (r) => { if (!finished) { finished = true; resolve(r); } };
+    setTimeout(() => done({ ok: false, error: 'No answer from the VK page' }), 25000);
+    const findList = (x, depth = 0) => {
+      if (!x || typeof x !== 'object' || depth > 6) return null;
+      if (!Array.isArray(x) && Array.isArray(x.list)) return x;
+      for (const v of Object.values(x)) { const r = findList(v, depth + 1); if (r) return r; }
+      return null;
+    };
+    const HASH_AT = { add: 0, delete_audio: 3, restore_audio: 6 };
+    const send = (hashes, trackCode, fromPage) => {
+      const hash = hashes[HASH_AT[want.act]];
+      if (!hash) return done({ ok: false, error: 'No hash for this action' });
+      const q = { al: 1, act: want.act, hash, oid: want.owner, aid: want.id };
+      if (want.act === 'add') Object.assign(q, { group_id: 0, gid: 0, album_id: -2, owner_id: want.owner, audio_id: want.id });
+      if (want.act === 'delete_audio') q.restore = 1;
+      if (trackCode) q.track_code = trackCode;
+      window.ajax.post('al_audio.php?act=' + want.act, q, {
+        onDone: () => done({ ok: true, fromPage }),
+        onFail: (m) => done({ ok: false, error: 'VK refused the request: ' + String(m || 'unknown') }),
+      });
+    };
+    // свежие хэши этого трека берём из списка, который страница загружает сама (у трека, которого уже нет в списке, остаются хэши из приложения)
+    const find = (offset) => {
+      window.ajax.post('al_audio.php?act=load_section', { act: 'load_section', type: 'playlist', owner_id: want.uid, playlist_id: -1, offset, is_loading_all: 1, al: 1 }, {
+        onDone: (...args) => {
+          const d = findList(args);
+          const a = d && d.list.find((x) => Array.isArray(x) && String(x[1]) === want.owner && String(x[0]) === want.id);
+          if (a) return send(String(a[13] || '').split('/'), String(a[20] || ''), true);
+          if (d && d.hasMore && d.list.length) return find(offset + d.list.length);
+          send(want.hashes, want.trackCode, false);
+        },
+        onFail: () => send(want.hashes, want.trackCode, false),
+      });
+    };
+    const start = (tries) => {
+      if (window.ajax && window.ajax.post) return find(0);
+      if (tries > 80) return done({ ok: false, error: 'The VK page did not load' });
+      setTimeout(() => start(tries + 1), 250);
+    };
+    start(0);
+  });
+}
+
+let vkBridgeWin = null;
+let vkBridgeTimer = null;
+async function pageLike(host, want) {
+  if (!vkBridgeWin || vkBridgeWin.isDestroyed()) {
+    const win = new BrowserWindow({ show: false, width: 1000, height: 800, webPreferences: { partition: PARTITION, sandbox: true, contextIsolation: true, nodeIntegration: false } });
+    win.webContents.setUserAgent(chromeUA());
+    win.on('closed', () => { if (vkBridgeWin === win) vkBridgeWin = null; });
+    vkBridgeWin = win;
+    await win.loadURL(`https://${host}/audio`);
+  }
+  const win = vkBridgeWin;
+  if (/login|authcheck/i.test(win.webContents.getURL())) { win.destroy(); return { ok: false, auth: true, error: 'Session expired' }; }
+  clearTimeout(vkBridgeTimer);
+  vkBridgeTimer = setTimeout(() => { if (vkBridgeWin && !vkBridgeWin.isDestroyed()) vkBridgeWin.destroy(); }, 3 * 60 * 1000);   // окно живёт недолго
+  return win.webContents.executeJavaScript(`(${inVkPage.toString()})(${JSON.stringify(want)})`);
+}
+
+async function like(track, on) {
+  const { uid, host } = readConf();
+  if (!uid) throw new AuthError('Not signed in');
+  const { form, act, owner, id, hashes, trackCode, key } = likeForm(track, on);
+
+  // 1. прямой запрос
+  try {
+    const res = await ses().fetch(`https://${host}/al_audio.php`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'User-Agent': chromeUA(), 'X-Requested-With': 'XMLHttpRequest', 'Content-Type': 'application/x-www-form-urlencoded', Origin: `https://${host}`, Referer: `https://${host}/audio` },
+      body: new URLSearchParams(form).toString(),
+    });
+    const text = await res.text();
+    log('like', act, key, 'direct ->', res.status, text.slice(0, 160).replace(/\s+/g, ' '));
+    if (/login|authcheck/i.test(res.url)) throw new AuthError('Session expired');
+    let json = null;
+    try { json = JSON.parse(text.replace(/^<!--/, '')); } catch (e) { /* ответ не в JSON */ }
+    if (res.ok && String(payloadCode(json)) === '0') return;
+  } catch (e) {
+    if (e instanceof AuthError) throw e;
+    log('direct like failed:', String((e && e.message) || e));
+  }
+
+  // 2. изнутри страницы
+  const r = await pageLike(host, { uid: String(uid), owner, id, act, hashes, trackCode });
+  log('like', act, key, 'via page ->', JSON.stringify(r).slice(0, 200));
+  if (r && r.ok) return;
+  if (r && r.auth) throw new AuthError('Session expired');
+  throw new Error((r && r.error) || 'VK refused the request');
 }
 
 /* ---------- Вход через окно сайта ---------- */
@@ -380,7 +519,14 @@ function register(ipcMain, winOf) {
   ipcMain.handle('vk:library', () => library());
   ipcMain.handle('vk:stream', async (_e, vkId, hash) => {
     try { return { ok: true, ...(await stream(vkId, hash)) }; } catch (e) {
+      log('stream failed:', vkId, '|', String((e && e.message) || e));   // любая неудача оставляет строку в терминале
       return { ok: false, auth: e instanceof AuthError, lock: e instanceof NoLinkError ? 'region' : undefined, error: String((e && e.message) || e) };
+    }
+  });
+  ipcMain.handle('vk:like', async (_e, track, on) => {
+    try { await like(track, !!on); return { ok: true }; } catch (e) {
+      log('like failed:', String((e && e.message) || e));
+      return { ok: false, auth: e instanceof AuthError, error: String((e && e.message) || e) };
     }
   });
   ipcMain.handle('vk:logout', async () => { await logout(); return true; });
@@ -391,4 +537,4 @@ function register(ipcMain, winOf) {
   });
 }
 
-module.exports = { register, _test: { pickStream, unmask, toTrack, parsePlaylists, decode, art, loadSection, collectTracks, AuthError, NoLinkError, stream } };
+module.exports = { register, _test: { pickStream, unmask, toTrack, parsePlaylists, decode, art, loadSection, collectTracks, AuthError, NoLinkError, stream, streamCache, like, inVkPage } };

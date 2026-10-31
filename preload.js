@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('api', {
     playlist: (ref) => ipcRenderer.invoke('sc:playlist', ref),
     search: (query) => ipcRenderer.invoke('sc:search', query),
     openLink: (url) => ipcRenderer.invoke('sc:open-link', url),
+    like: (track, on) => ipcRenderer.invoke('sc:like', { scId: track && track.scId }, !!on), // поставить или снять лайк в аккаунте
   },
 
 
@@ -40,6 +41,7 @@ contextBridge.exposeInMainWorld('api', {
     logout: () => ipcRenderer.invoke('vk:logout'),
     library: () => ipcRenderer.invoke('vk:library'),
     stream: (vkId, hash) => ipcRenderer.invoke('vk:stream', vkId, hash), // свежая ссылка на звук трека
+    like: (track, on) => ipcRenderer.invoke('vk:like', { vkId: track && track.vkId, hash: track && track.hash, trackCode: track && track.trackCode }, !!on), // добавить трек в аудиозаписи или убрать
   },
 
   // языки интерфейса из локальной папки locales

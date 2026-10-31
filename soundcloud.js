@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 
 const PARTITION = 'persist:soundcloud';            // отдельное хранилище cookie для окна входа
-const LIMITS = { recent: 40, recommended: 40, liked: 300, playlists: 100, following: 200 };
+const LIMITS = { recent: 40, recommended: 40, liked: 1000, playlists: 100, following: 200 };
 
 class AuthError extends Error {}
 
@@ -36,7 +36,7 @@ async function getJson(url, headers) {
 async function collect(get, first, limit) {
   const out = [];
   let next = first;
-  for (let guard = 0; next && out.length < limit && guard < 12; guard++) {
+  for (let guard = 0; next && out.length < limit && guard < Math.max(12, Math.ceil(limit / 50) + 2); guard++) {
     const page = await get(next);
     if (Array.isArray(page)) { out.push(...page); break; }
     out.push(...((page && page.collection) || []));
@@ -128,6 +128,7 @@ async function fetchLibrary(get) {
   return {
     me: { name: String(me.username || me.full_name || ''), avatar: art(me.avatar_url), url: String(me.permalink_url || '') },
     v: 4,                                          // версия формата списков (в кэше интерфейса)
+    likedComplete: liked.length < LIMITS.liked,    // false: список обрезан лимитом, и отсутствие трека в нём ничего не доказывает
     updated: Date.now(),
     recent: tracks(recent),
     recommended: tracks(recommended),
@@ -433,6 +434,91 @@ const cleanRef = (r) => {
   return { id: id > 0 ? id : 0, url: r && typeof r.url === 'string' ? r.url.trim().slice(0, 400) : '' };
 };
 
+/* ---------- Лайки ---------- */
+// Тот же запрос, что делает сайт: PUT ставит лайк, DELETE снимает (повтор ничего не ломает). Чтение у SoundCloud открыто любому клиенту,
+// а запись он иногда принимает только от настоящей страницы сайта, поэтому: сперва обычный запрос с cookie окна входа и заголовками сайта,
+// а если сервер отказал, тот же запрос выполняется изнутри скрытой страницы soundcloud.com (как сделал бы браузер).
+let meIdCache = 0;
+let bridgeWin = null;
+let bridgeTimer = null;
+
+async function bridge() {
+  if (bridgeWin && !bridgeWin.isDestroyed()) return bridgeWin;
+  const win = new BrowserWindow({ show: false, width: 900, height: 700, webPreferences: { partition: PARTITION, sandbox: true, contextIsolation: true, nodeIntegration: false } });
+  win.webContents.setUserAgent(chromeUA());
+  win.on('closed', () => { if (bridgeWin === win) bridgeWin = null; });
+  bridgeWin = win;
+  await win.loadURL('https://soundcloud.com/');
+  return win;
+}
+
+// выполняется внутри страницы: client_id берём тот, с которым сайт сам обращается к api-v2
+function inPageRequest(want) {
+  return (async () => {
+    let cid = '';
+    for (let i = 0; i < 16 && !cid; i++) {
+      for (const e of performance.getEntriesByType('resource')) {
+        const m = /api-v2\.soundcloud\.com\/.*[?&]client_id=([A-Za-z0-9]{32})/.exec(e.name);
+        if (m) cid = m[1];
+      }
+      if (!cid) await new Promise((r) => setTimeout(r, 500));
+    }
+    const url = new URL(want.path, 'https://api-v2.soundcloud.com');
+    url.searchParams.set('client_id', cid || want.fallbackClientId);
+    const res = await fetch(url, { method: want.method, credentials: 'include', headers: { Authorization: 'OAuth ' + want.token, Accept: 'application/json' } });
+    return { status: res.status, text: (await res.text()).slice(0, 200), siteClientId: !!cid };
+  })();
+}
+
+async function pageRequest(want) {
+  const win = await bridge();
+  clearTimeout(bridgeTimer);
+  bridgeTimer = setTimeout(() => { if (bridgeWin && !bridgeWin.isDestroyed()) bridgeWin.destroy(); }, 3 * 60 * 1000);   // окно живёт недолго
+  return win.webContents.executeJavaScript(`(${inPageRequest.toString()})(${JSON.stringify(want)})`);
+}
+
+async function writeLike(token, clientId, userId, trackId, on) {
+  const method = on ? 'PUT' : 'DELETE';
+  const path = `/users/${userId}/track_likes/${trackId}`;
+  const ok = (s) => s >= 200 && s < 300;
+  let status = 0;
+  let body = '';
+  try {
+    const url = new URL(path, 'https://api-v2.soundcloud.com');
+    url.searchParams.set('client_id', clientId);
+    const res = await ses().fetch(url.toString(), {
+      method, credentials: 'include',
+      headers: { Authorization: 'OAuth ' + token, Accept: 'application/json', 'User-Agent': chromeUA(), Origin: 'https://soundcloud.com', Referer: 'https://soundcloud.com/' },
+    });
+    status = res.status;
+    body = (await res.text()).slice(0, 160);
+  } catch (e) { body = String((e && e.message) || e); }
+  log('like', method, trackId, 'direct ->', status, body.replace(/\s+/g, ' '));
+  if (ok(status)) return;
+  if (status === 401) throw new AuthError('Session expired (HTTP 401)');
+
+  const r = await pageRequest({ method, path, token, fallbackClientId: clientId });
+  log('like', method, trackId, 'via page ->', r.status, r.siteClientId ? '(site client_id)' : '(own client_id)', String(r.text || '').replace(/\s+/g, ' '));
+  if (ok(r.status)) return;
+  if (r.status === 401) throw new AuthError('Session expired (HTTP 401)');
+  throw new Error('HTTP ' + r.status);
+}
+
+async function setLike(trackId, on) {
+  const id = Math.floor(Number(trackId));
+  if (!(id > 0)) return { ok: false, error: 'Bad track id' };
+  try {
+    const token = await webToken();
+    if (!token || readConf().mode !== 'web') throw new AuthError('Signed out');
+    const clientId = await webClientId();
+    if (!meIdCache) meIdCache = (await webGetter(token, clientId)('/me')).id;
+    await writeLike(token, clientId, meIdCache, id, on);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, auth: e instanceof AuthError, error: String((e && e.message) || e) };
+  }
+}
+
 /* ---------- Общие действия ---------- */
 async function status() {
   let connected = false;
@@ -451,6 +537,7 @@ async function library() {
 }
 
 async function logout() {
+  meIdCache = 0;
   const c = readConf();
   delete c.mode;
   writeConf();
@@ -461,6 +548,7 @@ function register(ipcMain, winOf) {
   ipcMain.handle('sc:status', () => status());
   ipcMain.handle('sc:library', () => library());
   ipcMain.handle('sc:stream', (_e, id) => stream(id));
+  ipcMain.handle('sc:like', (_e, track, on) => setLike(track && track.scId, !!on));
 
   // страницы: трек, исполнитель, плейлист или альбом (по номеру или по ссылке на soundcloud.com)
   const page = (channel, fn) => ipcMain.handle(channel, (_e, ref) => {
@@ -497,4 +585,4 @@ function register(ipcMain, winOf) {
   });
 }
 
-module.exports = { register, _test: { fetchLibrary, collect, trackOf, toPlaylist, toUser, art, resolveStream, AuthError, trackPage, userPage, playlistPage, searchAll, hydrate } };
+module.exports = { register, _test: { fetchLibrary, collect, trackOf, toPlaylist, toUser, art, resolveStream, AuthError, trackPage, userPage, playlistPage, searchAll, hydrate, setLike } };
