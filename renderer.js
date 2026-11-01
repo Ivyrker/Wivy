@@ -203,7 +203,7 @@
     if (pct(saved.patternAlpha)) settings.patternAlpha = Math.round(saved.patternAlpha);
     if (typeof saved.font === 'string' && saved.font.length < 80) settings.font = saved.font;
     if (Number.isFinite(saved.fontSize) && saved.fontSize >= 12 && saved.fontSize <= 18) settings.fontSize = Math.round(saved.fontSize);
-    if (pct(saved.volume)) settings.volume = Math.round(saved.volume);
+    if (pct(saved.volume)) settings.volume = Math.round(saved.volume * 10) / 10;   // громкость хранится с десятыми долями
     if (typeof saved.lang === 'string' && saved.lang.length < 20) settings.lang = saved.lang;
     BOOLS.forEach((k) => { if (typeof saved[k] === 'boolean') settings[k] = saved[k]; });
     Object.keys(NUMS).forEach((k) => { const [lo, hi] = NUMS[k]; if (Number.isFinite(saved[k]) && saved[k] >= lo && saved[k] <= hi) settings[k] = Math.round(saved[k]); });
@@ -702,7 +702,7 @@
     return `
       <div class="track ${cls} ${t.lock ? 'locked' : ''} ${current() && current().id === t.id ? 'playing' : ''}" data-track="${t.id}">
         ${mode === 'icon' ? srcIcon(src, '') : ''}
-        <div class="mini" style="background:${esc(coverBg(t.title + t.artist, t.art))}"><span class="ico">${I.play}</span></div>
+        <div class="mini" style="background:${esc(coverBg(t.title + t.artist, t.art))}"><span class="ico">${current() && current().id === t.id && player.playing ? I.pause : I.play}</span></div>
         <div class="t-meta">
           <div class="t-title">${mode === 'title' ? srcIcon(src, 'sm') : ''}${titleLink(t)}${lockIcon(t)}</div>
           <div class="t-artist">${artistLink(t)}</div>
@@ -719,7 +719,7 @@
       <div class="card ${mode === 'label' ? 'with-label' : ''} ${t.lock ? 'locked' : ''}" data-track="${t.id}">
         <div class="cover" style="background:${esc(coverBg(t.title + t.artist, t.art))}">
           ${mode === 'icon' ? `<span class="cover-ico" style="${srcVars(src)}" title="${esc(src.name)}">${I[src.icon]}</span>` : ''}
-          <span class="fab">${I.play}</span>
+          <span class="fab">${current() && current().id === t.id && player.playing ? I.pause : I.play}</span>
         </div>
         <div class="card-title">${mode === 'title' ? srcIcon(src, 'sm') : ''}${titleLink(t)}${lockIcon(t)}</div>
         <div class="card-sub">${artistLink(t)}</div>
@@ -1583,10 +1583,15 @@
     setFill($('seek'));
   }
 
+  // подсветка играющего трека и значок в его строке или карточке: пауза, пока звук идёт, иначе воспроизведение
   function markPlaying() {
     const id = current() ? current().id : null;
     document.querySelectorAll('[data-track]').forEach((el) => {
-      el.classList.toggle('playing', Number(el.dataset.track) === id);
+      const isCur = Number(el.dataset.track) === id;
+      el.classList.toggle('playing', isCur);
+      const glyph = el.querySelector('.ico, .fab');
+      const want = isCur && player.playing ? 'pause' : 'play';
+      if (glyph && glyph.dataset.g !== want) { glyph.dataset.g = want; glyph.innerHTML = want === 'pause' ? I.pause : I.play; }
     });
   }
 
@@ -1608,8 +1613,8 @@
     $('playBtn').innerHTML = player.playing ? I.pause : I.play;
     $('playBtn').title = L(player.playing ? 'Pause' : 'Play');
     $('likeBtn').classList.toggle('on', isLiked(t));
-    $('npTitle').classList.toggle('lnk', !!(t && t.scId));
-    $('npArtist').classList.toggle('lnk', !!(t && (t.artistId || t.artistUrl) && !player.error && !player.loading));
+    $('npTitle').classList.toggle('lnk', !!(t && (t.scId || t.vkId)));
+    $('npArtist').classList.toggle('lnk', !!(t && artistAttrs(t) && !player.error && !player.loading));
 
     $('shuffleBtn').classList.toggle('on', player.shuffle);
     $('shuffleBtn').title = L(player.shuffle ? 'Shuffle on' : 'Shuffle off');
@@ -1976,8 +1981,43 @@
   // (soundcloud.js). Чтобы подключить другую платформу, достаточно добавить её в entityApi с теми же методами.
   const pages = new Map();     // ключ страницы -> { status: 'loading' | 'ok' | 'error', data, error, at }
   let pendingPlay = '';        // страница, которую надо сразу запустить, как только она загрузится (кнопка ▶ на карточке)
-  const viewKey = (v) => (v ? `${v.src}:${v.kind}:${v.id || v.url}` : '');
-  const entityApi = (src) => (src === 'soundcloud' ? scApi() : null);
+  const viewKey = (v) => (v ? `${v.src}:${v.kind}:${v.id || v.url || v.name}` : '');   // у исполнителей VK нет номера: страница ищется по имени
+  // VK не отдаёт открытых запросов за страницей трека или исполнителя, поэтому они собираются из вашей библиотеки VK;
+  // плейлист загружается настоящим запросом (vk.js). Для новой платформы достаточно вернуть здесь такой же набор track / user / playlist.
+  const vkLibTracks = () => { const seen = new Set(); return [...DATA.vk.liked, ...DATA.vk.recent].filter((x) => !seen.has(x.vkId) && seen.add(x.vkId)); };
+  const artistParts = (s) => String(s || '').toLowerCase().split(/\s*(?:,|&|;|×|\bfeat\.?|\bft\.?)\s*/).map((x) => x.trim()).filter(Boolean);
+  const vkPages = {
+    track: async (ref) => {
+      const m = /audio(-?\d+_\d+)/.exec(ref.url || '');
+      const t = m && vkLibTracks().find((x) => x.vkId === m[1]);
+      if (!t) return { ok: false, error: L('This track is no longer in your VK library.') };
+      const mine = artistParts(t.artist);
+      const more = vkLibTracks().filter((x) => x.vkId !== t.vkId && artistParts(x.artist).some((p) => mine.includes(p))).slice(0, 20);
+      return { ok: true, data: { track: { ...t, artBig: t.art, desc: '', tags: [], reposts: 0, comments: 0 }, related: more, relatedTitle: 'More by this artist in your library' } };
+    },
+    user: async (ref) => {
+      const name = String(ref.name || '').trim();
+      const want = name.toLowerCase();
+      const tracks = vkLibTracks().filter((x) => String(x.artist).toLowerCase().trim() === want || artistParts(x.artist).includes(want));
+      if (!tracks.length) return { ok: false, error: L('No tracks by this artist in your VK library.') };
+      const art = (tracks.find((x) => x.art) || {}).art || '';
+      return { ok: true, data: { artist: { name, art, artBig: art, url: `https://vk.com/search?c%5Bsection%5D=audio&q=${encodeURIComponent(name)}`, followers: 0, trackCount: tracks.length, city: '', country: '', desc: '' },
+        popular: [], tracks, albums: [], playlists: [] } };
+    },
+    playlist: async (ref) => {
+      const m = /playlist\/(-?\d+)_(\d+)/.exec(ref.url || '');
+      const api = vk.api();
+      if (!m || !api || !api.playlist) return { ok: false, error: 'Unsupported link' };
+      const r = await api.playlist({ owner: m[1], id: m[2] });
+      if (!r || !r.ok) return r || { ok: false, error: 'No answer from VK' };
+      const ent = DATA.vk.playlists.find((p) => p.url === ref.url) || {};
+      const tracks = r.data.tracks;
+      const art = ent.art || (tracks.find((x) => x.art) || {}).art || '';
+      return { ok: true, data: { playlist: { name: ent.name || L('Playlist'), count: ent.count || tracks.length, art, artBig: art, url: ref.url, isAlbum: false, artist: '', artistId: 0, artistUrl: '', date: '', desc: '',
+        totalDur: tracks.reduce((s, x) => s + (x.dur || 0), 0) }, tracks } };
+    },
+  };
+  const entityApi = (src) => (src === 'soundcloud' ? scApi() : src === 'vk' ? vkPages : null);
   const KIND_LABEL = { track: 'Track', artist: 'Artist', playlist: 'Playlist' };
 
   function viewTitle() {
@@ -1988,13 +2028,15 @@
     return title.length > 48 ? title.slice(0, 47) + '…' : title;
   }
 
-  function buildPage(kind, d) {
-    if (kind === 'track') return { kind, title: d.track.title, track: mapTrack(d.track), related: d.related.map(mapTrack) };
+  function buildPage(kind, d, src) {
+    const mt = mapTrackFor(src);
+    const me = mapEntityFor(src);
+    if (kind === 'track') return { kind, title: d.track.title, track: mt(d.track), related: d.related.map(mt), relatedTitle: d.relatedTitle || '' };
     if (kind === 'artist') {
-      return { kind, title: d.artist.name, artist: mapEntity(d.artist), popular: d.popular.map(mapTrack), tracks: d.tracks.map(mapTrack),
-               albums: d.albums.map(mapEntity), playlists: d.playlists.map(mapEntity) };
+      return { kind, title: d.artist.name, artist: me(d.artist), popular: d.popular.map(mt), tracks: d.tracks.map(mt),
+               albums: d.albums.map(me), playlists: d.playlists.map(me) };
     }
-    return { kind, title: d.playlist.name, pl: mapEntity(d.playlist), tracks: d.tracks.map(mapTrack) };
+    return { kind, title: d.playlist.name, pl: me(d.playlist), tracks: d.tracks.map(mt) };
   }
 
   async function loadPage(v, force) {
@@ -2007,13 +2049,13 @@
     pages.set(key, { status: 'loading' });
     if (pages.size > 60) pages.delete(pages.keys().next().value);
     let r;
-    try { r = await call({ id: v.id, url: v.url }); } catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
+    try { r = await call({ id: v.id, url: v.url, name: v.name }); } catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
     if (r && r.ok) {
-      try { pages.set(key, { status: 'ok', data: buildPage(v.kind, r.data), at: Date.now() }); }
+      try { pages.set(key, { status: 'ok', data: buildPage(v.kind, r.data, v.src), at: Date.now() }); }
       catch (e) { pages.set(key, { status: 'error', error: String((e && e.message) || e) }); }
     } else {
       pages.set(key, { status: 'error', error: String((r && r.error) || 'Unknown error') });
-      if (r && r.auth) { scForget(sc); scSchedule(); sc.error = L(TXT.soundcloud.expired); }
+      if (r && r.auth) { const s = SVCS[v.src] || sc; scForget(s); scSchedule(); s.error = L(TXT[s.id].expired); }
     }
     if (viewKey(state.view) === key) { renderTitlebar(); scRerender(); }
   }
@@ -2027,18 +2069,25 @@
   const yearOf = (s) => { const y = new Date(s).getFullYear(); return y > 1990 ? String(y) : ''; };
 
   // что открыть по клику: адрес и номер лежат в самом элементе
-  const refAttrs = (src, id, url) => `data-src="${esc(src || 'soundcloud')}" data-id="${Number(id) || 0}" data-url="${esc(url || '')}"`;
-  const titleLink = (t) => (t.scId
+  const refAttrs = (src, id, url, name) => `data-src="${esc(src || 'soundcloud')}" data-id="${Number(id) || 0}" data-url="${esc(url || '')}" data-name="${esc(name || '')}"`;
+  const titleLink = (t) => (t.scId || t.vkId
     ? `<span class="t-text lnk" data-open="track" ${refAttrs(t.source, t.scId, t.url)}>${esc(t.title)}</span>`
     : `<span class="t-text">${esc(t.title)}</span>`);
-  // и у трека, и у плейлиста исполнитель лежит в полях artist / artistId / artistUrl
-  const artistLink = (x) => (!x.artist ? '' : x.artistId || x.artistUrl
-    ? `<span class="lnk" data-open="artist" ${refAttrs(x.source, x.artistId, x.artistUrl)}>${esc(x.artist)}</span>`
-    : esc(x.artist));
+  // и у трека, и у плейлиста исполнитель лежит в полях artist / artistId / artistUrl; у VK исполнителя находим по имени
+  const artistAttrs = (x) => (x.artistId || x.artistUrl ? refAttrs(x.source, x.artistId, x.artistUrl)
+    : x.source === 'vk' && x.artist ? refAttrs('vk', 0, '', x.artist) : '');
+  const artistLink = (x) => {
+    if (!x.artist) return '';
+    if (x.source === 'vk' && !x.artistId && !x.artistUrl) {   // у VK в строке исполнителя бывает несколько имён через запятую: у каждого своя ссылка
+      return x.artist.split(/(,\s*)/).map((part, i) => (i % 2 || !part.trim() ? esc(part)
+        : `<span class="lnk" data-open="artist" ${refAttrs('vk', 0, '', part.trim())}>${esc(part)}</span>`)).join('');
+    }
+    return artistAttrs(x) ? `<span class="lnk" data-open="artist" ${artistAttrs(x)}>${esc(x.artist)}</span>` : esc(x.artist);
+  };
 
   function playlistCard(pl) {
     const sub = [state.platform === 'all' ? platform(pl.source).name : '', pl.isAlbum ? L('Album') : '', L('{0} tr.', pl.count)].filter(Boolean).join(', ');
-    const open = pl.source === 'soundcloud';   // страницы плейлистов есть только у SoundCloud
+    const open = !!(pl.scId || pl.url);   // страница плейлиста есть у SoundCloud и VK
     return `
       <div class="card" ${open ? `data-open="playlist" ${refAttrs(pl.source, pl.scId, pl.url)}` : ''}>
         <div class="cover" style="background:${esc(coverBg(pl.name, pl.art))}">${open ? `<span class="fab">${I.play}</span>` : ''}</div>
@@ -2048,7 +2097,7 @@
   }
 
   const userCard = (u) => `
-      <div class="card artist" ${u.source === 'soundcloud' ? `data-open="artist" ${refAttrs(u.source, u.scId, u.url)}` : ''}>
+      <div class="card artist" ${u.scId ? `data-open="artist" ${refAttrs(u.source, u.scId, u.url)}` : ''}>
         <div class="cover" style="background:${esc(coverBg(u.name, u.art))}"></div>
         <div class="card-title"><span class="t-text">${esc(u.name)}</span></div>
         ${u.followers ? `<div class="card-sub">${esc(L('{0} followers', fmtNum(u.followers)))}</div>` : ''}
@@ -2094,8 +2143,8 @@
       t.reposts ? L('{0} reposts', fmtNum(t.reposts)) : '', t.comments ? L('{0} comments', fmtNum(t.comments)) : '',
       t.dur ? fmt(t.dur) : '',
     ].filter(Boolean).join(' · ');
-    const artistBtn = t.artistId || t.artistUrl
-      ? `<button class="btn ic" data-open="artist" ${refAttrs(t.source, t.artistId, t.artistUrl)}>${I.person}<span>${esc(L('Artist page'))}</span></button>` : '';
+    const artistBtn = artistAttrs(t)
+      ? `<button class="btn ic" data-open="artist" ${artistAttrs(t)}>${I.person}<span>${esc(L('Artist page'))}</span></button>` : '';
     return heroHtml({
       kind: L('Track'), cover: t.artBig || t.art, title: t.title,
       sub: [artistLink(t), t.genre && esc(t.genre), yearOf(t.date)].filter(Boolean).join(' · '),
@@ -2105,7 +2154,7 @@
       + (t.lock ? `<div class="section"><div class="notice"><p><b>${L(t.lock === 'region' ? 'Not available' : 'Protected track')}</b>${esc(lockedMsg(t))}</p></div></div>` : '')
       + aboutHtml(t.desc)
       + (t.tags && t.tags.length ? sectionHtml(L('Tags'), `<div class="chips">${t.tags.map((x) => `<span class="chip">${esc(x)}</span>`).join('')}</div>`) : '')
-      + (d.related.length ? sectionHtml(L('Related tracks'), trackList(d.related)) : '');
+      + (d.related.length ? sectionHtml(L(d.relatedTitle || 'Related tracks'), trackList(d.related)) : '');
   }
 
   function artistPageHtml(d) {
@@ -2168,7 +2217,8 @@
     clearTimeout(remoteSearch.timer);
     const q = state.query;
     const api = scApi();
-    if (q.length < 2 || !sc.connected || !api || !api.search) { remoteSearch.q = ''; return; }
+    const here = state.platform === 'all' || state.platform === 'soundcloud';   // на вкладке VK не показываем результаты SoundCloud
+    if (q.length < 2 || !here || !sc.connected || !api || !api.search) { remoteSearch.q = ''; return; }
     remoteSearch.q = q;
     if (remoteSearch.cache.has(q)) { remoteSearch.status = 'ok'; remoteSearch.data = remoteSearch.cache.get(q); return; }
     remoteSearch.status = 'loading';
@@ -2218,11 +2268,13 @@
   function openEntity(kind, ref, opts, platformId) {
     const id = Math.floor(Number(ref.id)) || 0;
     const url = ref.url || '';
-    if (!id && !url) return;
-    const view = { kind, src: ref.src || 'soundcloud', id, url };
+    const name = ref.name || '';
+    if (!id && !url && !name) return;
+    const view = { kind, src: ref.src || 'soundcloud', id, url, name };
     const key = viewKey(view);
     pendingPlay = opts && opts.autoplay ? key : '';
-    const plat = platformId || state.platform;
+    // страница открывается в платформе самого трека: цвета и вкладки соответствуют сервису, а не той вкладке, где вы искали
+    const plat = platformId || (PLATFORMS.some((p) => p.id === view.src) ? view.src : state.platform);
     if (!go(plat, state.tabs[plat], view) && pendingPlay) renderContent();   // страница уже открыта: просто запускаем
   }
 
@@ -2250,7 +2302,8 @@
       updatePlayer();
       renderContent();
     } else if (a === 'ext' && d) {
-      const api = scApi();
+      const s = SVCS[state.view.src];
+      const api = s ? s.api() : null;
       const url = (d.track || d.artist || d.pl || {}).url;
       if (api && api.openLink && url) api.openLink(url);
     }
@@ -2286,22 +2339,22 @@
     if (act) return pageAction(act);
     // ссылки на страницы (название, исполнитель, карточки плейлистов и исполнителей) перехватывают клик раньше, чем строка трека
     const open = e.target.closest('[data-open]');
-    if (open) return openEntity(open.dataset.open, { src: open.dataset.src, id: open.dataset.id, url: open.dataset.url }, { autoplay: !!e.target.closest('.fab') });
+    if (open) return openEntity(open.dataset.open, { src: open.dataset.src, id: open.dataset.id, url: open.dataset.url, name: open.dataset.name }, { autoplay: !!e.target.closest('.fab') });
     const row = e.target.closest('[data-track]');
     if (row) playTrack(Number(row.dataset.track));
   });
 
   // название, обложка и исполнитель в нижнем плеере открывают страницу играющего трека
-  const npPlatform = (t) => (DATA[state.platform].connected ? state.platform : t.source);
+  const npPlatform = (t) => t.source;   // страница трека открывается в его платформе
   const openNowPlaying = () => {
     const t = current();
-    if (t && t.scId) openEntity('track', { src: t.source, id: t.scId, url: t.url }, null, npPlatform(t));
+    if (t && (t.scId || t.vkId)) openEntity('track', { src: t.source, id: t.scId, url: t.url }, null, npPlatform(t));
   };
   $('npTitle').addEventListener('click', openNowPlaying);
   $('npCover').addEventListener('click', openNowPlaying);
   $('npArtist').addEventListener('click', () => {
     const t = current();
-    if (t && (t.artistId || t.artistUrl) && !player.error && !player.loading) openEntity('artist', { src: t.source, id: t.artistId, url: t.artistUrl }, null, npPlatform(t));
+    if (t && artistAttrs(t) && !player.error && !player.loading) openEntity('artist', { src: t.source, id: t.artistId, url: t.artistUrl, name: t.source === 'vk' ? t.artist : '' }, null, npPlatform(t));
   });
 
   // настройки
@@ -2485,7 +2538,29 @@
     audio.currentTime = player.elapsed;
     updateProgress();
   });
-  $('vol').addEventListener('input', (e) => { setFill(e.target); settings.volume = Number(e.target.value); audio.volume = settings.volume / 100; saveSettings(); });
+  // всплывашка с процентами над бегунком: показывается, пока меняем громкость, и гаснет через секунду
+  let volTipTimer = null;
+  let volDrag = false;
+  function showVolTip(hold) {
+    const input = $('vol');
+    const tip = $('volTip');
+    const v = Number(input.value);
+    tip.textContent = v.toFixed(1) + '%';
+    const thumb = 12;   // ширина бегунка из styles.css
+    tip.style.left = (thumb / 2 + (input.clientWidth - thumb) * (v / 100)) + 'px';
+    tip.classList.add('show');
+    clearTimeout(volTipTimer);
+    if (!hold && !volDrag) volTipTimer = setTimeout(() => tip.classList.remove('show'), 900);
+  }
+  $('vol').addEventListener('pointerdown', () => { volDrag = true; showVolTip(true); });
+  window.addEventListener('pointerup', () => { if (volDrag) { volDrag = false; showVolTip(false); } });
+  $('vol').addEventListener('input', (e) => {
+    setFill(e.target);
+    settings.volume = Math.round(Number(e.target.value) * 10) / 10;
+    audio.volume = settings.volume / 100;
+    saveSettings();
+    showVolTip(false);
+  });
 
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !$('overlay').hidden) {

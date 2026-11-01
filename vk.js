@@ -4,7 +4,7 @@
 // Официальный OAuth для аудио VK закрыл (вход по токену отключён с июня 2024), поэтому библиотека читается так же, как её
 // читает мобильный сайт m.vk.com: теми же запросами и с cookie этого окна. Способ неофициальный.
 // Пароли и cookie в окно приложения не попадают: наружу отдаются только готовые списки треков.
-const { app, BrowserWindow, session } = require('electron');
+const { app, BrowserWindow, session, shell } = require('electron');
 const fs = require('fs');
 const path = require('path');
 
@@ -137,9 +137,10 @@ async function audioJson(host, form) {
 let sampleLogged = false;
 const streamCache = new Map();
 let flagsLogged = false;   // диагностику по флагам пишем один раз за запуск
-async function loadSection(host, uid, offset) {
+// playlistId '-1' — основной список «Моя музыка»; для плейлиста передаются его владелец (uid) и номер
+async function loadSection(host, uid, offset, playlistId = '-1') {
   const { json, res, text } = await audioJson(host, {
-    act: 'load_section', owner_id: String(uid), playlist_id: '-1', offset: String(offset), type: 'playlist', access_hash: '', is_loading_all: '1',
+    act: 'load_section', owner_id: String(uid), playlist_id: String(playlistId), offset: String(offset), type: 'playlist', access_hash: '', is_loading_all: '1',
   });
   const d = findList(json);
   if (!d) {
@@ -159,10 +160,10 @@ async function loadSection(host, uid, offset) {
   return d;
 }
 
-async function collectTracks(host, uid, limit) {
+async function collectTracks(host, uid, limit, playlistId = '-1') {
   const out = [];
   for (let offset = 0, guard = 0; out.length < limit && guard < 40; guard++) {
-    const d = await loadSection(host, uid, offset);
+    const d = await loadSection(host, uid, offset, playlistId);
     out.push(...d.list.map(toTrack).filter(Boolean));
     if (!d.hasMore || !d.list.length) break;
     offset += d.list.length;
@@ -298,6 +299,20 @@ async function stream(vkId, hash) {
   log('stream:', direct.type, new URL(direct.url).hostname);
   return { url: direct.url, alt: direct.alt, hls: '' };
 }
+
+/* ---------- Страницы ---------- */
+// Треки плейлиста: тот же запрос, что и для основного списка, только с номером плейлиста и его владельцем.
+async function playlistPage(ref) {
+  const { uid, host } = readConf();
+  if (!uid) throw new AuthError('Not signed in');
+  const owner = String((ref && ref.owner) || '');
+  const id = String((ref && ref.id) || '');
+  if (!/^-?\d+$/.test(owner) || !/^\d+$/.test(id)) throw new Error('Bad playlist id');
+  return { tracks: await collectTracks(host, owner, LIMITS.liked, id) };
+}
+
+// «Открыть на VK»: только адреса самого сайта
+const VK_LINK = /^https:\/\/(m\.)?vk\.(com|ru)\/\S+$/i;
 
 /* ---------- Лайки ---------- */
 // «Лайк» в VK — это аудиозапись в вашем списке: лайк добавляет трек (или возвращает только что удалённый), снятие лайка удаляет.
@@ -523,6 +538,18 @@ function register(ipcMain, winOf) {
       return { ok: false, auth: e instanceof AuthError, lock: e instanceof NoLinkError ? 'region' : undefined, error: String((e && e.message) || e) };
     }
   });
+  ipcMain.handle('vk:playlist', async (_e, ref) => {
+    try { return { ok: true, data: await playlistPage(ref) }; } catch (e) {
+      log('playlist failed:', String((e && e.message) || e));
+      return { ok: false, auth: e instanceof AuthError, error: String((e && e.message) || e) };
+    }
+  });
+  ipcMain.handle('vk:open-link', async (_e, url) => {
+    const u = typeof url === 'string' ? url.trim() : '';
+    if (!VK_LINK.test(u)) return false;
+    await shell.openExternal(u);
+    return true;
+  });
   ipcMain.handle('vk:like', async (_e, track, on) => {
     try { await like(track, !!on); return { ok: true }; } catch (e) {
       log('like failed:', String((e && e.message) || e));
@@ -537,4 +564,4 @@ function register(ipcMain, winOf) {
   });
 }
 
-module.exports = { register, _test: { pickStream, unmask, toTrack, parsePlaylists, decode, art, loadSection, collectTracks, AuthError, NoLinkError, stream, streamCache, like, inVkPage } };
+module.exports = { register, _test: { pickStream, unmask, toTrack, parsePlaylists, decode, art, loadSection, collectTracks, AuthError, NoLinkError, stream, streamCache, like, inVkPage, playlistPage } };

@@ -41,6 +41,8 @@ contextBridge.exposeInMainWorld('api', {
     logout: () => ipcRenderer.invoke('vk:logout'),
     library: () => ipcRenderer.invoke('vk:library'),
     stream: (vkId, hash) => ipcRenderer.invoke('vk:stream', vkId, hash), // свежая ссылка на звук трека
+    playlist: (ref) => ipcRenderer.invoke('vk:playlist', { owner: ref && ref.owner, id: ref && ref.id }), // треки плейлиста
+    openLink: (url) => ipcRenderer.invoke('vk:open-link', url),
     like: (track, on) => ipcRenderer.invoke('vk:like', { vkId: track && track.vkId, hash: track && track.hash, trackCode: track && track.trackCode }, !!on), // добавить трек в аудиозаписи или убрать
   },
 
