@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('api', {
     user: (ref) => ipcRenderer.invoke('sc:user', ref),
     playlist: (ref) => ipcRenderer.invoke('sc:playlist', ref),
     search: (query) => ipcRenderer.invoke('sc:search', query),
+    searchMore: (cursor) => ipcRenderer.invoke('sc:search-more', cursor), // следующая порция выдачи по курсору из ответа search
     openLink: (url) => ipcRenderer.invoke('sc:open-link', url),
     like: (track, on) => ipcRenderer.invoke('sc:like', { scId: track && track.scId }, !!on), // поставить или снять лайк в аккаунте
   },
@@ -41,7 +42,10 @@ contextBridge.exposeInMainWorld('api', {
     logout: () => ipcRenderer.invoke('vk:logout'),
     library: () => ipcRenderer.invoke('vk:library'),
     stream: (vkId, hash) => ipcRenderer.invoke('vk:stream', vkId, hash), // свежая ссылка на звук трека
-    playlist: (ref) => ipcRenderer.invoke('vk:playlist', { owner: ref && ref.owner, id: ref && ref.id }), // треки плейлиста
+    playlist: (ref) => ipcRenderer.invoke('vk:playlist', { owner: ref && ref.owner, id: ref && ref.id, hash: ref && ref.hash }), // треки и метаданные плейлиста
+    search: (query) => ipcRenderer.invoke('vk:search', String(query || '')),
+    searchMore: (cursor) => ipcRenderer.invoke('vk:search-more', cursor && { sectionId: cursor.sectionId, nextFrom: cursor.nextFrom, startFrom: cursor.startFrom, blockId: cursor.blockId }),
+    artist: (ref) => ipcRenderer.invoke('vk:artist', { id: ref && ref.id, slug: ref && ref.slug, name: ref && ref.name }), // номер и имя передаются строками
     openLink: (url) => ipcRenderer.invoke('vk:open-link', url),
     like: (track, on) => ipcRenderer.invoke('vk:like', { vkId: track && track.vkId, hash: track && track.hash, trackCode: track && track.trackCode }, !!on), // добавить трек в аудиозаписи или убрать
   },

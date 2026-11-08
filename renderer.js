@@ -184,8 +184,9 @@
     bgColor: 'auto', bgSat: 60, outlineColor: 'auto', outlineIcons: true, outlineStyle: 'soft',
     notifyTrack: false, notifyUnfocused: true, notifySilent: false,
     autoplay: true, rememberVolume: true, volume: 70, autoSync: true, syncEvery: 15,
+    hideLocked: true, searchSort: 'relevance',
   };
-  const BOOLS = ['notifyTrack', 'notifyUnfocused', 'notifySilent', 'autoplay', 'rememberVolume', 'outlineIcons', 'autoSync'];
+  const BOOLS = ['notifyTrack', 'notifyUnfocused', 'notifySilent', 'autoplay', 'rememberVolume', 'outlineIcons', 'autoSync', 'hideLocked'];
   // числовые настройки и их допустимые границы
   const NUMS = { aTitle: [0, 100], aRail: [0, 100], aMain: [0, 100], aCanvas: [0, 100], aCards: [0, 100],
                  aPlayer: [0, 100], aModal: [0, 100], aControls: [0, 100], aLines: [0, 100], glassBlur: [0, 24], wpBlur: [0, 40], textOutline: [0, 100], bgSat: [0, 100], uiScale: [75, 150], syncEvery: [1, 240] };
@@ -205,6 +206,7 @@
     if (Number.isFinite(saved.fontSize) && saved.fontSize >= 12 && saved.fontSize <= 18) settings.fontSize = Math.round(saved.fontSize);
     if (pct(saved.volume)) settings.volume = Math.round(saved.volume * 10) / 10;   // громкость хранится с десятыми долями
     if (typeof saved.lang === 'string' && saved.lang.length < 20) settings.lang = saved.lang;
+    if (['relevance', 'duration', 'title', 'plays'].includes(saved.searchSort)) settings.searchSort = saved.searchSort;
     BOOLS.forEach((k) => { if (typeof saved[k] === 'boolean') settings[k] = saved[k]; });
     Object.keys(NUMS).forEach((k) => { const [lo, hi] = NUMS[k]; if (Number.isFinite(saved[k]) && saved[k] >= lo && saved[k] <= hi) settings[k] = Math.round(saved[k]); });
     ['bgColor', 'outlineColor'].forEach((k) => { if (saved[k] === 'auto' || TEXT_FIXED[saved[k]] || TINTS.some((p) => p.id === saved[k])) settings[k] = saved[k]; });
@@ -298,10 +300,27 @@
   }
 
   // трек и остальные объекты берут все поля, что прислал основной процесс (исполнитель, счётчики, дата, у VK ещё vkId и hash)
-  const mapTrackFor = (src) => (t) => { const key = trackKey(src, t); return { ...t, id: idFor(key), source: src, lock: t.lock || lockStore[key] || '' }; };
+  // Любой трек VK, прошедший через приложение (библиотека, поиск, страницы исполнителей и плейлистов), запоминается здесь:
+  // по этому индексу открывается его страница, даже если трека нет в ваших лайках.
+  const vkTrackIndex = new Map();
+  const mapTrackFor = (src) => (t) => {
+    const key = trackKey(src, t);
+    const mapped = { ...t, id: idFor(key), source: src, lock: t.lock || lockStore[key] || '' };
+    if (src === 'vk' && t.vkId) {
+      vkTrackIndex.delete(t.vkId);   // свежий вариант перемещается в конец
+      vkTrackIndex.set(t.vkId, mapped);
+      if (vkTrackIndex.size > 6000) vkTrackIndex.delete(vkTrackIndex.keys().next().value);
+    }
+    return mapped;
+  };
   const mapEntityFor = (src) => (x) => ({ ...x, source: src });
   const mapTrack = mapTrackFor('soundcloud');
   const mapEntity = mapEntityFor('soundcloud');
+
+  // карточки плейлистов VK (из библиотеки, поиска и страниц исполнителей): номер, access_hash, автор. Страница плейлиста берёт их отсюда
+  const vkPlaylistMeta = new Map();
+  const vkPlKey = (e) => (e && e.vkOwner && e.vkPlaylistId ? `${e.vkOwner}_${e.vkPlaylistId}` : '');
+  const regVkPlaylists = (list) => list.forEach((e) => { const k = vkPlKey(e); if (k) vkPlaylistMeta.set(k, e); });
 
   // Лайки: правда лежит на сервисе. Приложение показывает то, что есть в списке лайков платформы, а ваш клик отправляет в её аккаунт.
   // likeStore хранит только то, что ещё не подтвердилось: ждёт ответа сервера, а затем перезагрузки списка. Принял сервис, и запись исчезает
@@ -400,18 +419,23 @@
       playlists: lib.playlists.map(tag),
       following: lib.following.map(tag),
     };
+    if (id === 'vk') regVkPlaylists(DATA.vk.playlists);
     rebuildAll();
   }
   rebuildAll();
 
   /* ---------- Состояние ---------- */
   // у каждой платформы свой выбранный раздел: при переключении платформ они не смешиваются
+  // фильтры поиска: types и sources пустые = «все»; hideLocked и sort запоминаются в настройках, остальное живёт, пока не очищен запрос
+  const newSearchFilter = () => ({ types: new Set(), sources: new Set(), dur: 'any', hideLocked: settings.hideLocked, lib: 'any', sort: settings.searchSort, more: false });
+
   const state = {
     platform: 'soundcloud',
     tabs: Object.fromEntries(PLATFORMS.map((p) => [p.id, 'home'])),
     query: '',
     view: null,            // открытая страница: { kind: 'track' | 'artist' | 'playlist', src, id, url } или null
     expanded: new Set(),   // раскрытые списки «Показать ещё» на странице
+    searchFilter: newSearchFilter(),
   };
   const curTab = () => state.tabs[state.platform];
 
@@ -690,6 +714,8 @@
   // трек, у которого есть только защищённый поток: показываем замок и не пытаемся играть
   const locked = (t) => !!(t && t.lock);
   const LOCK_TITLE = { drm: 'Protected (DRM): cannot be played here', region: 'Not available in your region' };
+  // трек найден у нескольких сервисов: значки остальных после названия (t.alt собирает dedupTracks)
+  const altIcons = (t) => (t.alt && t.alt.length ? t.alt.map((a) => srcIcon(platform(a.source), 'sm')).join('') : '');
   const lockIcon = (t) => (t.lock ? `<span class="lock-ico" title="${esc(L(LOCK_TITLE[t.lock] || LOCK_TITLE.region))}">${I.lock}</span>` : '');
   const lockedMsg = (t) => (t && t.lock === 'region'
     ? L('This track is not available in your region.')
@@ -704,7 +730,7 @@
         ${mode === 'icon' ? srcIcon(src, '') : ''}
         <div class="mini" style="background:${esc(coverBg(t.title + t.artist, t.art))}"><span class="ico">${current() && current().id === t.id && player.playing ? I.pause : I.play}</span></div>
         <div class="t-meta">
-          <div class="t-title">${mode === 'title' ? srcIcon(src, 'sm') : ''}${titleLink(t)}${lockIcon(t)}</div>
+          <div class="t-title">${mode === 'title' ? srcIcon(src, 'sm') : ''}${titleLink(t)}${altIcons(t)}${lockIcon(t)}</div>
           <div class="t-artist">${artistLink(t)}</div>
         </div>
         ${mode === 'label' ? `<div class="src" style="${srcVars(src)}"><i class="dot"></i>${esc(src.name)}</div>` : ''}
@@ -777,14 +803,25 @@
     if (state.view) return renderPage(el);
 
     if (tab === 'home') {
-      const recent = data.recent.slice(0, 6);
+      // У VK нет истории прослушиваний: «недавние» это последние добавленные, а если их список пуст, берём начало лайков.
+      // Если рекомендаций нет, главную наполняют исполнители и плейлисты из библиотеки и следующие треки из неё.
+      const base = data.recent.length ? data.recent : data.liked.slice(0, 12);
+      const recent = base.slice(0, 6);
       const more = data.recommended;
-      visibleTracks = recent.concat(more);
+      const noRecs = !more.length;
+      const filler = noRecs ? data.liked.filter((x) => !recent.some((r) => r.id === x.id)).slice(0, 20) : [];
+      const artists = noRecs ? data.following.slice(0, 6) : [];
+      const lists = noRecs ? data.playlists.slice(0, 6) : [];
+      visibleTracks = recent.concat(more, filler);
+      const recentTitle = state.platform === 'vk' ? 'Recently added' : 'Recently played';
       el.innerHTML = `
         ${SVCS[state.platform] ? accountBar(SVCS[state.platform]) : ''}
-        ${recent.length ? `<div class="section"><div class="section-title">${L('Recently played')}</div><div class="grid">${recent.map(trackCard).join('')}</div></div>` : ''}
+        ${recent.length ? `<div class="section"><div class="section-title">${L(recentTitle)}</div><div class="grid">${recent.map(trackCard).join('')}</div></div>` : ''}
         ${more.length ? `<div class="section"><div class="section-title">${L('Recommended')}</div>${trackList(more)}</div>` : ''}
-        ${recent.length || more.length ? '' : emptyHtml()}`;
+        ${artists.length ? sectionHtml(L('Artists'), grid(artists.map(userCard).join(''))) : ''}
+        ${lists.length ? sectionHtml(L('Playlists'), grid(lists.map(playlistCard).join(''))) : ''}
+        ${filler.length ? sectionHtml(L('From your library'), trackList(filler)) : ''}
+        ${recent.length || more.length || filler.length ? '' : emptyHtml()}`;
     } else if (tab === 'liked') {
       const likedList = likedTracks(data);
       visibleTracks = likedList;
@@ -821,6 +858,9 @@
     state.expanded = new Set();
     state.query = '';
     remoteSearch.q = '';
+    remoteSearch.seq++;
+    remoteSearch.by = {};
+    state.searchFilter = newSearchFilter();
     $('searchInput').value = '';
     document.querySelector('.scroller').scrollTop = 0;
     document.querySelector('.main').classList.remove('scrolled');
@@ -1853,7 +1893,7 @@
     soundcloud: { connect: 'Connect SoundCloud', loading: 'Loading your SoundCloud library…', synced: 'Library synced with SoundCloud.', expired: 'Your SoundCloud session expired. Connect again.' },
     vk:         { connect: 'Connect VK Music',   loading: 'Loading your VK Music library…',   synced: 'Library synced with VK Music.',   expired: 'Your VK Music session expired. Connect again.' },
   };
-  const LIB_V = { soundcloud: 4, vk: 2 };   // версия формата библиотеки: у кэша старой версии нет полей, нужных страницам и замкам
+  const LIB_V = { soundcloud: 4, vk: 4 };   // версия формата библиотеки: у кэша старой версии нет полей, нужных страницам и замкам
   const scApi = () => sc.api();
   const scErrorText = (e) => String(e || '');
 
@@ -1989,14 +2029,23 @@
   const vkPages = {
     track: async (ref) => {
       const m = /audio(-?\d+_\d+)/.exec(ref.url || '');
-      const t = m && vkLibTracks().find((x) => x.vkId === m[1]);
-      if (!t) return { ok: false, error: L('This track is no longer in your VK library.') };
+      const t = m && (vkTrackIndex.get(m[1]) || vkLibTracks().find((x) => x.vkId === m[1]));
+      if (!t) return { ok: false, error: L('This track is not available any more. Try searching for it again.') };
       const mine = artistParts(t.artist);
-      const more = vkLibTracks().filter((x) => x.vkId !== t.vkId && artistParts(x.artist).some((p) => mine.includes(p))).slice(0, 20);
-      return { ok: true, data: { track: { ...t, artBig: t.art, desc: '', tags: [], reposts: 0, comments: 0 }, related: more, relatedTitle: 'More by this artist in your library' } };
+      const more = [...vkTrackIndex.values()].filter((x) => x.vkId !== t.vkId && artistParts(x.artist).some((p) => mine.includes(p))).slice(0, 20);
+      return { ok: true, data: { track: { ...t, artBig: t.art, desc: '', tags: [], reposts: 0, comments: 0 }, related: more, relatedTitle: 'More by this artist' } };
     },
     user: async (ref) => {
       const name = String(ref.name || '').trim();
+      // сначала настоящая страница исполнителя (по номеру из адреса или по имени); если VK ничего не дал, страница собирается из вашей библиотеки
+      const key = ((/artist\/([A-Za-z0-9_.-]{1,64})/.exec(ref.url || '')) || [])[1] || '';
+      const api = vk.api();
+      if ((key || name) && api && api.artist) {
+        let r;
+        try { r = await api.artist({ id: key, name }); } catch (e) { r = null; }
+        if (r && r.ok) { regVkPlaylists([...r.data.albums, ...r.data.playlists]); return r; }
+        if (r && r.auth) return r;
+      }
       const want = name.toLowerCase();
       const tracks = vkLibTracks().filter((x) => String(x.artist).toLowerCase().trim() === want || artistParts(x.artist).includes(want));
       if (!tracks.length) return { ok: false, error: L('No tracks by this artist in your VK library.') };
@@ -2005,16 +2054,18 @@
         popular: [], tracks, albums: [], playlists: [] } };
     },
     playlist: async (ref) => {
-      const m = /playlist\/(-?\d+)_(\d+)/.exec(ref.url || '');
+      const m = /(?:playlist|album)\/(-?\d+)_(\d+)(?:_([A-Za-z0-9]{6,40}))?/.exec(ref.url || '');
       const api = vk.api();
       if (!m || !api || !api.playlist) return { ok: false, error: 'Unsupported link' };
-      const r = await api.playlist({ owner: m[1], id: m[2] });
+      const ent = vkPlaylistMeta.get(`${m[1]}_${m[2]}`) || DATA.vk.playlists.find((p) => p.url === ref.url) || {};
+      const r = await api.playlist({ owner: m[1], id: m[2], hash: ent.accessHash || m[3] || '' });
       if (!r || !r.ok) return r || { ok: false, error: 'No answer from VK' };
-      const ent = DATA.vk.playlists.find((p) => p.url === ref.url) || {};
       const tracks = r.data.tracks;
-      const art = ent.art || (tracks.find((x) => x.art) || {}).art || '';
-      return { ok: true, data: { playlist: { name: ent.name || L('Playlist'), count: ent.count || tracks.length, art, artBig: art, url: ref.url, isAlbum: false, artist: '', artistId: 0, artistUrl: '', date: '', desc: '',
-        totalDur: tracks.reduce((s, x) => s + (x.dur || 0), 0) }, tracks } };
+      const meta = r.data.playlist || {};   // метаданные из ответа VK; чего там нет, берём из карточки
+      ent.count = meta.count || tracks.length || ent.count;   // карточка в списке теперь показывает точное число
+      const art = meta.art || ent.art || (tracks.find((x) => x.art) || {}).art || '';
+      return { ok: true, data: { playlist: { name: meta.name || ent.name || L('Playlist'), count: meta.count || ent.count || tracks.length, art, artBig: art, url: ref.url, isAlbum: !!ent.isAlbum,
+        artist: meta.artist || ent.artist || ent.author || '', artistId: 0, artistUrl: '', date: '', desc: meta.desc || '', totalDur: tracks.reduce((s, x) => s + (x.dur || 0), 0) }, tracks } };
     },
   };
   const entityApi = (src) => (src === 'soundcloud' ? scApi() : src === 'vk' ? vkPages : null);
@@ -2074,10 +2125,17 @@
     ? `<span class="t-text lnk" data-open="track" ${refAttrs(t.source, t.scId, t.url)}>${esc(t.title)}</span>`
     : `<span class="t-text">${esc(t.title)}</span>`);
   // и у трека, и у плейлиста исполнитель лежит в полях artist / artistId / artistUrl; у VK исполнителя находим по имени
+  // у VK номер исполнителя (19 цифр) хранится строкой в адресе: Number() его бы испортил
+  const vkArtistRef = (a) => refAttrs('vk', 0, `https://vk.com/artist/${a.id}`, a.name);
   const artistAttrs = (x) => (x.artistId || x.artistUrl ? refAttrs(x.source, x.artistId, x.artistUrl)
+    : x.source === 'vk' && x.artists && x.artists.length ? vkArtistRef(x.artists[0])
     : x.source === 'vk' && x.artist ? refAttrs('vk', 0, '', x.artist) : '');
   const artistLink = (x) => {
     if (!x.artist) return '';
+    if (x.source === 'vk' && x.artists && x.artists.length) {   // у VK названы исполнители с номерами: каждому своя ссылка, приглашённые после «feat.»
+      const link = (a) => `<span class="lnk" data-open="artist" ${vkArtistRef(a)}>${esc(a.name)}</span>`;
+      return x.artists.map(link).join(', ') + (x.featured && x.featured.length ? ' feat. ' + x.featured.map(link).join(', ') : '');
+    }
     if (x.source === 'vk' && !x.artistId && !x.artistUrl) {   // у VK в строке исполнителя бывает несколько имён через запятую: у каждого своя ссылка
       return x.artist.split(/(,\s*)/).map((part, i) => (i % 2 || !part.trim() ? esc(part)
         : `<span class="lnk" data-open="artist" ${refAttrs('vk', 0, '', part.trim())}>${esc(part)}</span>`)).join('');
@@ -2086,7 +2144,7 @@
   };
 
   function playlistCard(pl) {
-    const sub = [state.platform === 'all' ? platform(pl.source).name : '', pl.isAlbum ? L('Album') : '', L('{0} tr.', pl.count)].filter(Boolean).join(', ');
+    const sub = [state.platform === 'all' ? platform(pl.source).name : '', pl.isAlbum ? L('Album') : '', pl.count ? L('{0} tr.', pl.count) : ''].filter(Boolean).join(', ');
     const open = !!(pl.scId || pl.url);   // страница плейлиста есть у SoundCloud и VK
     return `
       <div class="card" ${open ? `data-open="playlist" ${refAttrs(pl.source, pl.scId, pl.url)}` : ''}>
@@ -2097,10 +2155,10 @@
   }
 
   const userCard = (u) => `
-      <div class="card artist" ${u.scId ? `data-open="artist" ${refAttrs(u.source, u.scId, u.url)}` : ''}>
+      <div class="card artist" ${u.scId || u.url ? `data-open="artist" ${refAttrs(u.source, u.scId, u.url, u.name)}` : ''}>
         <div class="cover" style="background:${esc(coverBg(u.name, u.art))}"></div>
         <div class="card-title"><span class="t-text">${esc(u.name)}</span></div>
-        ${u.followers ? `<div class="card-sub">${esc(L('{0} followers', fmtNum(u.followers)))}</div>` : ''}
+        ${u.followers ? `<div class="card-sub">${esc(L('{0} followers', fmtNum(u.followers)))}</div>` : u.trackCount ? `<div class="card-sub">${esc(L('{0} tr.', u.trackCount))}</div>` : ''}
       </div>`;
 
   const sectionHtml = (title, body) => `<div class="section"><div class="section-title">${esc(title)}</div>${body}</div>`;
@@ -2209,59 +2267,288 @@
     if (pendingPlay === key) { pendingPlay = ''; playAll(false); }
   }
 
-  /* ---------- Поиск по сервису (кроме треков из вашей библиотеки) ---------- */
-  const remoteSearch = { q: '', status: 'idle', data: null, error: '', cache: new Map(), timer: null };
-  const mapSearch = (d) => ({ tracks: d.tracks.map(mapTrack), users: d.users.map(mapEntity), playlists: d.playlists.map(mapEntity), albums: d.albums.map(mapEntity) });
+  /* ---------- Поиск: библиотека и все подключённые сервисы ---------- */
+  // Источник подключается записью в searchSources: у api сервиса должны быть search(q) и (необязательно) searchMore(cursor).
+  // Результат каждого источника приводится к виду { tracks, users, playlists, albums, cursor }; дальше он сливается с библиотекой,
+  // дедуплицируется, ранжируется и фильтруется здесь, на клиенте, поэтому смена фильтра не делает новых запросов.
+  const searchSources = { soundcloud: { svc: sc, timeout: 8000 }, vk: { svc: vk, timeout: 12000 } };
+  const searchApi = (src) => { const e = searchSources[src]; const api = e && e.svc.connected ? e.svc.api() : null; return api && api.search ? api : null; };
+  // на вкладке платформы ищем только в ней, во «Все треки» во всех подключённых сервисах
+  const searchTargets = () => (state.platform === 'all' ? Object.keys(searchSources) : [state.platform]).filter(searchApi);
+
+  // by[источник] = { status: 'loading' | 'ok' | 'error', entry: { at, data, cursor }, error, auth, more }
+  const remoteSearch = { q: '', seq: 0, timer: null, renderTimer: null, by: {}, cache: new Map() };
+  const SEARCH_TTL = 5 * 60 * 1000;
+  const withTimeout = (p, ms) => Promise.race([p, new Promise((_, reject) => setTimeout(() => reject(new Error(`No answer in ${ms / 1000} s`)), ms))]);
+
+  function mapSearch(d, src) {
+    const mt = mapTrackFor(src);
+    const me = mapEntityFor(src);
+    const playlists = (d.playlists || []).map(me);
+    const albums = (d.albums || []).map(me);
+    if (src === 'vk') regVkPlaylists([...playlists, ...albums]);
+    return { tracks: (d.tracks || []).map(mt), users: (d.users || []).map(me), playlists, albums };
+  }
+
+  // результаты приходят по одному источнику, перерисовка не чаще раза в 100 мс
+  function renderSoon() {
+    if (remoteSearch.renderTimer) return;
+    remoteSearch.renderTimer = setTimeout(() => { remoteSearch.renderTimer = null; if (state.query) scRerender(); }, 100);
+  }
+
+  async function runSource(src, q, seq, force) {
+    const key = `${src}|${q}`;
+    const api = searchApi(src);
+    if (!api) return;
+    remoteSearch.by[src] = { status: 'loading', entry: null, error: '', auth: false, more: false };
+    if (force) renderSoon();
+    let r;
+    try { r = await withTimeout(Promise.resolve().then(() => api.search(q)), searchSources[src].timeout); } catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
+    if (remoteSearch.seq !== seq) return;   // запрос уже другой
+    if (r && r.ok) {
+      const entry = { at: Date.now(), data: mapSearch(r.data, src), cursor: r.data.cursor || null };
+      remoteSearch.cache.set(key, entry);
+      if (remoteSearch.cache.size > 30) remoteSearch.cache.delete(remoteSearch.cache.keys().next().value);
+      remoteSearch.by[src] = { status: 'ok', entry, error: '', auth: false, more: false };
+    } else {
+      remoteSearch.by[src] = { status: 'error', entry: null, error: r && r.auth ? L(TXT[searchSources[src].svc.id].expired) : String((r && r.error) || 'Unknown error'), auth: !!(r && r.auth), more: false };
+      if (r && r.auth) { const s = searchSources[src].svc; scForget(s); scSchedule(); s.error = L(TXT[s.id].expired); }   // выходит из системы только этот сервис
+    }
+    renderSoon();
+  }
 
   function scheduleSearch() {
     clearTimeout(remoteSearch.timer);
     const q = state.query;
-    const api = scApi();
-    const here = state.platform === 'all' || state.platform === 'soundcloud';   // на вкладке VK не показываем результаты SoundCloud
-    if (q.length < 2 || !here || !sc.connected || !api || !api.search) { remoteSearch.q = ''; return; }
-    remoteSearch.q = q;
-    if (remoteSearch.cache.has(q)) { remoteSearch.status = 'ok'; remoteSearch.data = remoteSearch.cache.get(q); return; }
-    remoteSearch.status = 'loading';
-    remoteSearch.data = null;
-    remoteSearch.timer = setTimeout(async () => {
+    const targets = q.length >= 2 ? searchTargets() : [];
+    const seq = ++remoteSearch.seq;
+    remoteSearch.by = {};
+    remoteSearch.q = targets.length ? q : '';
+    if (!targets.length) return;
+    const todo = [];
+    for (const src of targets) {
+      const hit = remoteSearch.cache.get(`${src}|${q}`);
+      if (hit && Date.now() - hit.at < SEARCH_TTL) remoteSearch.by[src] = { status: 'ok', entry: hit, error: '', auth: false, more: false };
+      else { remoteSearch.by[src] = { status: 'loading', entry: null, error: '', auth: false, more: false }; todo.push(src); }
+    }
+    if (todo.length) remoteSearch.timer = setTimeout(() => todo.forEach((src) => runSource(src, q, seq)), 450);   // пауза в наборе, чтобы не слать запрос на каждую букву
+  }
+
+  // «Show more»: каждый источник с курсором присылает следующую порцию, остальные результаты остаются на месте
+  async function searchMoreAll() {
+    const seq = remoteSearch.seq;
+    const jobs = Object.entries(remoteSearch.by).filter(([, b]) => b.status === 'ok' && b.entry.cursor && !b.more);
+    jobs.forEach(([, b]) => { b.more = true; });
+    scRerender();
+    await Promise.all(jobs.map(async ([src, b]) => {
+      const api = searchApi(src);
       let r;
-      try { r = await api.search(q); } catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
-      if (remoteSearch.q !== q) return;
+      try { r = api && api.searchMore ? await withTimeout(Promise.resolve().then(() => api.searchMore(b.entry.cursor)), searchSources[src].timeout) : { ok: false, error: 'No more results' }; } catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
+      b.more = false;
+      if (remoteSearch.seq !== seq) return;
       if (r && r.ok) {
-        remoteSearch.data = mapSearch(r.data);
-        remoteSearch.status = 'ok';
-        remoteSearch.cache.set(q, remoteSearch.data);
-        if (remoteSearch.cache.size > 30) remoteSearch.cache.delete(remoteSearch.cache.keys().next().value);
+        const add = mapSearch(r.data, src);
+        const d = b.entry.data;
+        const merge = (list, extra, keyOf) => { const seen = new Set(list.map(keyOf)); extra.forEach((x) => { if (!seen.has(keyOf(x))) list.push(x); }); };
+        merge(d.tracks, add.tracks, (x) => x.id);
+        ['users', 'playlists', 'albums'].forEach((k) => merge(d[k], add[k], (x) => x.scId || x.url || x.name));
+        b.entry.cursor = r.data.cursor || null;
       } else {
-        remoteSearch.status = 'error';
-        remoteSearch.error = String((r && r.error) || 'Unknown error');
-        if (r && r.auth) { scForget(sc); scSchedule(); sc.error = L(TXT.soundcloud.expired); }
+        b.entry.cursor = null;
+        if (r && r.auth) { const s = searchSources[src].svc; scForget(s); scSchedule(); s.error = L(TXT[s.id].expired); }
       }
-      if (state.query === q) scRerender();
-    }, 450);
+    }));
+    scRerender();
+  }
+
+  /* --- ранжирование (веса по образцу поиска Mimose) --- */
+  const lc = (s) => String(s || '').toLowerCase().replace(/ё/g, 'е').trim();
+  function relevance(q, title, artist) {
+    const nq = lc(q);
+    const words = nq.split(/\s+/).filter(Boolean);
+    const ti = lc(title);
+    const ar = lc(artist);
+    let s = 0;
+    if (words.length <= 1) {
+      if (ti === nq) s += 100; else if (ti.startsWith(nq)) s += 80; else if (ti.includes(nq)) s += 50;
+      if (ar === nq) s += 70; else if (ar.startsWith(nq)) s += 50; else if (ar.includes(nq)) s += 30;
+      return s;
+    }
+    let inTitle = false;
+    let inArtist = false;
+    let found = 0;
+    for (const w of words) {
+      let hit = false;
+      if (ti === w) { s += 100; inTitle = hit = true; } else if (ti.includes(w)) { s += 40; inTitle = hit = true; }
+      if (ar === w) { s += 100; inArtist = hit = true; } else if (ar.includes(w)) { s += 40; inArtist = hit = true; }
+      if (hit) found++;
+    }
+    if (inTitle && inArtist) s += 50;
+    if (found === words.length) s += 30;
+    return s;
+  }
+  const TYPE_BONUS = { track: 5, artist: 4, album: 3, playlist: 2 };
+  // «недоступный» трек не должен оказаться вверху, а трек из вашей библиотеки поднимается
+  const trackScore = (q, t) => relevance(q, t.title, t.artist) + TYPE_BONUS.track + (t.inLib ? 60 : 0) - (t.lock ? 200 : 0);
+
+  /* --- дедупликация треков между сервисами --- */
+  // нормализация только для сравнения (в показе остаётся как есть): без скобок, feat./ft./prod./remix, диакритики и знаков
+  const normDedup = (s) => String(s || '').normalize('NFKD').toLowerCase().replace(/ё/g, 'е').replace(/[\u0300-\u036f]/g, '')
+    .replace(/\([^)]*\)|\[[^\]]*\]/g, ' ').replace(/\b(?:feat|ft|prod)\b\.?/g, ' ').replace(/\bremix\b/g, ' ').replace(/[^\p{L}\p{N}]+/gu, ' ').trim().replace(/\s+/g, ' ');
+  const mainArtist = (t) => (t.source === 'vk' && t.artists && t.artists.length ? t.artists[0].name : artistParts(t.artist)[0] || t.artist || '');
+  const SRC_PRIORITY = { soundcloud: 0, vk: 1 };
+
+  // Один и тот же трек у разных сервисов: та же пара «исполнитель + название» и длительность в пределах 3 с (0 = неизвестна).
+  // Ничего не удаляется: у главного варианта (не закрытый, с обложкой, SoundCloud раньше VK) в alt лежат остальные.
+  function dedupTracks(list) {
+    const buckets = new Map();
+    const groups = [];
+    const close = (a, b) => !a.dur || !b.dur || Math.abs(a.dur - b.dur) <= 3;
+    for (const t of list) {
+      const k = normDedup(mainArtist(t)) + '|' + normDedup(t.title);
+      if (k.length < 3) { groups.push([t]); continue; }
+      const found = buckets.get(k) || [];
+      const g = found.find((m) => m.every((x) => x.source !== t.source && close(x, t)));
+      if (g) g.push(t);
+      else { const ng = [t]; found.push(ng); buckets.set(k, found); groups.push(ng); }
+    }
+    const rank = (x) => [x.lock ? 1 : 0, x.art ? 0 : 1, SRC_PRIORITY[x.source] === undefined ? 9 : SRC_PRIORITY[x.source]];
+    return groups.map((g) => {
+      if (g.length === 1) return g[0];
+      const sorted = g.slice().sort((a, b) => { const ra = rank(a); const rb = rank(b); for (let i = 0; i < 3; i++) if (ra[i] !== rb[i]) return ra[i] - rb[i]; return 0; });
+      return { ...sorted[0], inLib: g.some((x) => x.inLib), alt: sorted.slice(1) };
+    });
+  }
+
+  /* --- фильтры --- */
+  const DUR_RANGES = { short: [0, 120], mid: [120, 300], long: [300, 600], xl: [600, Infinity] };
+  // выбран источник, а у объединённого трека главный вариант чужой: главным становится вариант выбранного источника
+  function restrictSources(t, f) {
+    if (!f.sources.size || f.sources.has(t.source)) return t;
+    const members = [t, ...(t.alt || [])];
+    const pick = members.find((x) => f.sources.has(x.source));
+    return pick ? { ...pick, inLib: t.inLib, alt: members.filter((x) => x !== pick) } : null;
+  }
+  function passTrack(t, f) {
+    if (f.hideLocked && t.lock) return false;
+    if (f.dur !== 'any') { const [lo, hi] = DUR_RANGES[f.dur]; if (!(t.dur >= lo && t.dur < hi) || !t.dur) return false; }
+    if (f.lib === 'in' && !t.inLib) return false;
+    if (f.lib === 'out' && t.inLib) return false;
+    return true;
+  }
+  function sortTracks(list, f, q) {
+    const copy = list.slice();
+    if (f.sort === 'duration') return copy.sort((a, b) => (a.dur || 0) - (b.dur || 0));
+    if (f.sort === 'title') return copy.sort((a, b) => String(a.title).localeCompare(String(b.title), undefined, { sensitivity: 'base' }));
+    if (f.sort === 'plays') {   // число прослушиваний сравниваем только внутри одного сервиса (у разных шкалы несравнимы), затем сервисы чередуются
+      const by = {};
+      copy.forEach((t) => { (by[t.source] = by[t.source] || []).push(t); });
+      return interleave(Object.values(by).map((l) => l.sort((a, b) => (b.plays || 0) - (a.plays || 0))));
+    }
+    const score = new Map(copy.map((t) => [t, trackScore(q, t)]));
+    return copy.sort((a, b) => score.get(b) - score.get(a));   // сортировка устойчивая: при равном счёте порядок прихода сохраняется
+  }
+
+  // всё, что нужно для показа: библиотека + удалённые результаты, слитые, отранжированные и отфильтрованные
+  function buildSearch(data, q) {
+    const f = state.searchFilter;
+    const libTracks = [...data.liked, ...data.recent, ...data.recommended];
+    const libKeys = new Set(libTracks.map(likeKey));
+    const seen = new Set();
+    const local = libTracks.filter((t) => !seen.has(t.id) && seen.add(t.id)).filter((t) => (t.title + ' ' + t.artist).toLowerCase().includes(q)).map((t) => ({ ...t, inLib: true }));
+    const localIds = new Set(local.map((t) => t.id));
+    const by = remoteSearch.q === q ? remoteSearch.by : {};
+    const srcs = Object.keys(by);
+    const ok = (s) => by[s].status === 'ok';
+    const part = (k) => interleave(srcs.map((s) => (ok(s) ? by[s].entry.data[k] : [])));
+    const remoteTracks = interleave(srcs.map((s) => (ok(s) ? by[s].entry.data.tracks.filter((t) => !localIds.has(t.id)).map((t) => ({ ...t, inLib: libKeys.has(likeKey(t)) })) : [])));
+    let tracks = dedupTracks([...local, ...remoteTracks]).map((t) => restrictSources(t, f)).filter(Boolean).filter((t) => passTrack(t, f));
+    tracks = sortTracks(tracks, f, q);
+    const entities = (list, bonus, nameOf, artistOf) => list.filter((e) => !f.sources.size || f.sources.has(e.source))
+      .map((e) => [e, relevance(q, nameOf(e), artistOf(e)) + bonus]).sort((a, b) => b[1] - a[1]).map((x) => x[0]);
+    const counts = {};
+    srcs.forEach((s) => { counts[s] = ok(s) ? ['tracks', 'users', 'playlists', 'albums'].reduce((n, k) => n + by[s].entry.data[k].length, 0) : null; });
+    return {
+      f, by, srcs, counts, hasRemote: srcs.length > 0,
+      libraryTracks: tracks.filter((t) => t.inLib), otherTracks: tracks.filter((t) => !t.inLib),
+      users: entities(part('users'), TYPE_BONUS.artist, (e) => e.name, () => ''),
+      albums: entities(part('albums'), TYPE_BONUS.album, (e) => e.name, (e) => e.artist),
+      playlists: entities(part('playlists'), TYPE_BONUS.playlist, (e) => e.name, (e) => e.artist),
+      anyPlays: tracks.some((t) => t.plays),
+      canMore: srcs.some((s) => ok(s) && by[s].entry.cursor), loadingMore: srcs.some((s) => by[s].more),
+    };
+  }
+
+  /* --- панель фильтров --- */
+  function filterBar(r) {
+    const f = r.f;
+    const chip = (sf, label, on, extra) => `<button class="chip ${on ? 'on' : ''}" data-sf="${sf}">${extra || ''}${esc(label)}</button>`;
+    const types = [['all', 'All'], ['track', 'Tracks'], ['artist', 'Artists'], ['album', 'Albums'], ['playlist', 'Playlists']]
+      .map(([k, label]) => chip('type:' + k, L(label), k === 'all' ? !f.types.size : f.types.has(k))).join('');
+    let srcChips = '';
+    if (r.srcs.length > 1) {
+      const mark = (s) => (r.by[s].status === 'loading' ? ' …' : r.by[s].status === 'error' ? ' !' : ` ${r.counts[s]}`);
+      srcChips = chip('src:all', L('All sources'), !f.sources.size)
+        + r.srcs.map((s) => chip('src:' + s, platform(s).name + mark(s), f.sources.has(s), srcIcon(platform(s), 'sm'))).join('');
+    }
+    const loading = r.srcs.filter((s) => r.by[s].status === 'loading').map((s) => platform(s).name);
+    const status = loading.length ? L('Searching {0}…', loading.join(', ')) : '';
+    const dur = [['any', 'Any'], ['short', '< 2 min'], ['mid', '2–5 min'], ['long', '5–10 min'], ['xl', '> 10 min']].map(([k, label]) => chip('dur:' + k, k === 'any' ? L(label) : label, f.dur === k)).join('');
+    const lib = [['any', 'Any'], ['in', 'Only in my library'], ['out', 'Not in my library']].map(([k, label]) => chip('lib:' + k, L(label), f.lib === k)).join('');
+    const sorts = [['relevance', 'Relevance'], ['duration', 'Duration'], ['title', 'Title (A–Z)']].concat(r.anyPlays ? [['plays', 'Most played']] : [])
+      .map(([k, label]) => chip('sort:' + k, L(label), f.sort === k)).join('');
+    const row = (label, body) => `<div class="frow"><span class="flabel">${esc(L(label))}</span><div class="chips">${body}</div></div>`;
+    return `
+      <div class="fbar">
+        <div class="chips">${types}</div>
+        ${srcChips ? `<div class="chips">${srcChips}</div>` : ''}
+        <div class="chips">${chip('more:toggle', L('More filters') + (f.more ? ' ▴' : ' ▾'), f.more)}</div>
+        ${status ? `<span class="fstat">${esc(status)}</span>` : ''}
+      </div>
+      ${f.more ? `<div class="section">${row('Duration', dur)}${row('Availability', chip('lock:toggle', L('Hide unavailable'), f.hideLocked))}${row('Library', lib)}${row('Sort by', sorts)}</div>` : ''}`;
+  }
+
+  function searchFilterAction(v) {
+    const f = state.searchFilter;
+    const [kind, val] = v.split(':');
+    const toggle = (set, x) => { if (set.has(x)) set.delete(x); else set.add(x); };
+    if (kind === 'type') { if (val === 'all') f.types.clear(); else toggle(f.types, val); }
+    else if (kind === 'src') { if (val === 'all') f.sources.clear(); else toggle(f.sources, val); }
+    else if (kind === 'dur' && (val === 'any' || DUR_RANGES[val])) f.dur = val;
+    else if (kind === 'lib' && ['any', 'in', 'out'].includes(val)) f.lib = val;
+    else if (kind === 'sort' && ['relevance', 'duration', 'title', 'plays'].includes(val)) { f.sort = val; settings.searchSort = val; saveSettings(); }
+    else if (kind === 'lock') { f.hideLocked = !f.hideLocked; settings.hideLocked = f.hideLocked; saveSettings(); }
+    else if (kind === 'more') f.more = !f.more;
+    else if (kind === 'retry') { if (searchSources[val]) runSource(val, remoteSearch.q, remoteSearch.seq, true); return; }
+    else if (kind === 'showmore') { searchMoreAll(); return; }
+    else return;
+    renderContent();
   }
 
   function renderSearch(el, data, q) {
-    const seen = new Set();
-    const local = [...data.liked, ...data.recent, ...data.recommended]
-      .filter((t) => !seen.has(t.id) && seen.add(t.id))
-      .filter((t) => (t.title + ' ' + t.artist).toLowerCase().includes(q));
-    const rs = remoteSearch.q === q ? remoteSearch : null;
-    const d = rs && rs.status === 'ok' ? rs.data : null;
-    const localIds = new Set(local.map((t) => t.id));
-    const fresh = d ? d.tracks.filter((t) => !localIds.has(t.id)) : [];
-    visibleTracks = local.concat(fresh);
-    let html = '';
-    if (local.length) html += sectionHtml(L(rs ? 'In your library' : 'Search results'), trackList(local));
-    if (rs && rs.status === 'loading') html += `<div class="empty small">${esc(L('Searching…'))}</div>`;
-    else if (rs && rs.status === 'error') html += `<div class="notice"><p><b>${L('Search failed')}</b>${esc(rs.error)}</p></div>`;
-    else if (d) {
-      if (fresh.length) html += sectionHtml(L('Tracks'), trackList(fresh));
-      if (d.users.length) html += sectionHtml(L('Artists'), grid(d.users.map(userCard).join('')));
-      if (d.albums.length) html += sectionHtml(L('Albums'), grid(d.albums.map(playlistCard).join('')));
-      if (d.playlists.length) html += sectionHtml(L('Playlists'), grid(d.playlists.map(playlistCard).join('')));
+    const r = buildSearch(data, q);
+    const f = r.f;
+    visibleTracks = [...r.libraryTracks, ...r.otherTracks];
+    const want = (k) => !f.types.size || f.types.has(k);
+    let html = filterBar(r);
+    if (want('track') && r.libraryTracks.length) html += sectionHtml(L(r.hasRemote ? 'In your library' : 'Search results'), trackList(r.libraryTracks));
+    if (want('track') && r.otherTracks.length) {
+      html += sectionHtml(L('Tracks'), trackList(r.otherTracks)
+        + (r.canMore ? `<div class="more-row"><button class="btn" data-sf="showmore" ${r.loadingMore ? 'disabled' : ''}>${esc(L(r.loadingMore ? 'Loading…' : 'Show more'))}</button></div>` : ''));
     }
-    el.innerHTML = html || `<div class="section"><div class="section-title">${L('Search results')}</div><div class="empty">${L('Nothing found. Try another title or artist.')}</div></div>`;
+    if (want('artist') && r.users.length) html += sectionHtml(L('Artists'), grid(r.users.map(userCard).join('')));
+    if (want('album') && r.albums.length) html += sectionHtml(L('Albums'), grid(r.albums.map(playlistCard).join('')));
+    if (want('playlist') && r.playlists.length) html += sectionHtml(L('Playlists'), grid(r.playlists.map(playlistCard).join('')));
+    // у упавшего сервиса своя плашка с повтором, остальные результаты остаются
+    html += r.srcs.filter((s) => r.by[s].status === 'error').map((s) => `<div class="notice"><p><b>${esc(platform(s).name)}: ${L('Search failed')}</b>${esc(r.by[s].error)}</p>
+      <div class="btn-row"><button class="btn" data-sf="retry:${s}">${L('Try again')}</button></div></div>`).join('');
+    const body = html.slice(filterBar(r).length);
+    if (!body.trim()) {
+      const searching = r.srcs.some((s) => r.by[s].status === 'loading');
+      html += searching ? `<div class="empty small">${esc(L('Searching…'))}</div>`
+        : `<div class="section"><div class="section-title">${L('Search results')}</div><div class="empty">${L('Nothing found. Try another title or artist.')}</div></div>`;
+    }
+    el.innerHTML = html;
   }
 
   /* ---------- Открытие страниц и кнопки на них ---------- */
@@ -2328,6 +2615,7 @@
 
   $('searchInput').addEventListener('input', (e) => {
     state.query = e.target.value.trim().toLowerCase();
+    if (!state.query) state.searchFilter = newSearchFilter();   // фильтры сбрасываются вместе с запросом
     scheduleSearch();
     renderContent();
   });
@@ -2335,6 +2623,8 @@
   $('content').addEventListener('click', (e) => {
     const scBtn = e.target.closest('[data-sc]');
     if (scBtn) return scAction(scBtn.dataset.sc, scBtn.dataset.svc);
+    const sf = e.target.closest('[data-sf]');
+    if (sf) return searchFilterAction(sf.dataset.sf);
     const act = e.target.closest('[data-act]');
     if (act) return pageAction(act);
     // ссылки на страницы (название, исполнитель, карточки плейлистов и исполнителей) перехватывают клик раньше, чем строка трека
@@ -2567,6 +2857,9 @@
       if (ui.search) { ui.search = ''; $('settingsSearch').value = ''; renderNav(); renderBody(false); return; }
       return closeSettings();
     }
+    // «/» переходит к поиску, Esc в поле поиска очищает запрос
+    if (e.key === '/' && $('overlay').hidden && !/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) { e.preventDefault(); $('searchInput').focus(); return; }
+    if (e.key === 'Escape' && $('overlay').hidden && e.target === $('searchInput') && $('searchInput').value) { $('searchInput').value = ''; $('searchInput').dispatchEvent(new Event('input')); return; }
     if ($('overlay').hidden && e.altKey && e.key === 'ArrowLeft') { e.preventDefault(); return stepHistory(-1); }
     if ($('overlay').hidden && e.altKey && e.key === 'ArrowRight') { e.preventDefault(); return stepHistory(1); }
     if (e.code === 'Space' && !$('overlay').hidden) return;

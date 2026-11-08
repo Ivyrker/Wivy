@@ -26,8 +26,8 @@ const ses = () => session.fromPartition(PARTITION);
 // обычный Chrome без пометок Electron: так вход через Google и Apple реже отвергается
 const chromeUA = () => ses().getUserAgent().replace(/\s*Electron\/\S+/, '').replace(/\s*music-player\/\S+/i, '');
 
-async function getJson(url, headers) {
-  const res = await net.fetch(url, { headers: { Accept: 'application/json', 'User-Agent': chromeUA(), ...headers } });
+async function getJson(url, headers, timeoutMs) {
+  const res = await net.fetch(url, { headers: { Accept: 'application/json', 'User-Agent': chromeUA(), ...headers }, ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}) });
   if (res.status === 401) throw new AuthError('Session expired (HTTP 401)');
   if (!res.ok) throw new Error('HTTP ' + res.status);
   return res.json();
@@ -158,10 +158,10 @@ async function webToken() {
   const c = (await ses().cookies.get({ name: 'oauth_token' })).find((x) => x.value);
   return c ? decodeURIComponent(c.value) : '';
 }
-const webGetter = (token, clientId) => (p) => {
+const webGetter = (token, clientId, timeoutMs) => (p) => {
   const url = new URL(p, 'https://api-v2.soundcloud.com');
   if (!url.searchParams.has('client_id')) url.searchParams.set('client_id', clientId);
-  return getJson(url.toString(), { Authorization: 'OAuth ' + token });
+  return getJson(url.toString(), { Authorization: 'OAuth ' + token }, timeoutMs);
 };
 
 const log = (...args) => console.log('[SoundCloud]', ...args);
@@ -400,31 +400,69 @@ async function playlistPage(get, ref) {
   return { playlist: playlistFull(p, tracks), tracks };
 }
 
-async function searchAll(get, q) {
-  const enc = encodeURIComponent(q);
+// страница выдачи с адресом следующей: по нему работает «Show more»
+async function collectPage(get, first, limit) {
+  const out = [];
+  let next = first;
+  for (let guard = 0; next && out.length < limit && guard < 12; guard++) {
+    const page = await get(next);
+    if (Array.isArray(page)) { out.push(...page); next = ''; break; }
+    out.push(...((page && page.collection) || []));
+    next = (page && page.next_href) || '';
+  }
+  return { items: out.slice(0, limit), next };
+}
+
+const SC_SEARCH = /^https:\/\/api-v2\.soundcloud\.com\/search\//;
+const SEARCH_PLAN = (enc) => ({
+  tracks: [`/search/tracks?q=${enc}&limit=20`, 20],
+  users: [`/search/users?q=${enc}&limit=10`, 10],
+  playlists: [`/search/playlists_without_albums?q=${enc}&limit=10`, 10],
+  albums: [`/search/albums?q=${enc}&limit=10`, 10],
+});
+
+// plan: { тип: [первая страница, сколько] }; результат: списки по типам и курсор (адреса следующих страниц)
+async function searchRun(get, plan) {
   const warnings = [];
-  const safe = safeCollect(get, warnings);
-  const [tr, us, pl, al] = await Promise.all([
-    safe(`/search/tracks?q=${enc}&limit=20`, 20),
-    safe(`/search/users?q=${enc}&limit=10`, 10),
-    safe(`/search/playlists_without_albums?q=${enc}&limit=10`, 10),
-    safe(`/search/albums?q=${enc}&limit=10`, 10),
-  ]);
+  const res = {};
+  await Promise.all(Object.entries(plan).map(async ([kind, [first, n]]) => {
+    try { res[kind] = await collectPage(get, first, n); } catch (e) {
+      if (e instanceof AuthError) throw e;
+      warnings.push(kind + ': ' + e.message);
+      res[kind] = { items: [], next: '' };
+    }
+  }));
+  const cursor = { tracks: res.tracks ? res.tracks.next : '', users: res.users ? res.users.next : '', playlists: res.playlists ? res.playlists.next : '', albums: res.albums ? res.albums.next : '' };
+  const items = (k) => (res[k] ? res[k].items : []);
   return {
-    tracks: tracksOf(tr),
-    users: uniq(us.map(toUser), (u) => u.scId),
-    playlists: uniq(pl.map(toPlaylist), (p) => p.scId),
-    albums: uniq(al.map(toPlaylist), (p) => p.scId),
+    tracks: tracksOf(items('tracks')),
+    users: uniq(items('users').map(toUser), (u) => u.scId),
+    playlists: uniq(items('playlists').map(toPlaylist), (p) => p.scId),
+    albums: uniq(items('albums').map(toPlaylist), (p) => p.scId),
+    cursor: Object.values(cursor).some(Boolean) ? cursor : null,
     warnings,
   };
 }
+const searchAll = (get, q) => searchRun(get, SEARCH_PLAN(encodeURIComponent(q)));
+
+// продолжение выдачи: берутся только адреса самого api-v2 SoundCloud
+async function searchMore(get, cursor) {
+  const sizes = { tracks: 20, users: 10, playlists: 10, albums: 10 };
+  const plan = {};
+  for (const k of Object.keys(sizes)) {
+    const href = cursor && typeof cursor[k] === 'string' ? cursor[k] : '';
+    if (SC_SEARCH.test(href)) plan[k] = [href, sizes[k]];
+  }
+  if (!Object.keys(plan).length) throw new Error('Bad cursor');
+  return searchRun(get, plan);
+}
 
 // общая обёртка: проверяем вход, достаём client_id и превращаем любую ошибку в { ok: false }
-async function viaWeb(fn) {
+async function viaWeb(fn, timeoutMs) {
   try {
     const token = await webToken();
     if (!token || readConf().mode !== 'web') throw new AuthError('Signed out');
-    return await fn(webGetter(token, await webClientId()));
+    return await fn(webGetter(token, await webClientId(), timeoutMs));
   } catch (e) {
     return { ok: false, auth: e instanceof AuthError, error: String((e && e.message) || e) };
   }
@@ -474,6 +512,7 @@ async function pageRequest(want) {
   const win = await bridge();
   clearTimeout(bridgeTimer);
   bridgeTimer = setTimeout(() => { if (bridgeWin && !bridgeWin.isDestroyed()) bridgeWin.destroy(); }, 3 * 60 * 1000);   // окно живёт недолго
+  if (bridgeTimer.unref) bridgeTimer.unref();   // таймер не должен удерживать процесс
   return win.webContents.executeJavaScript(`(${inPageRequest.toString()})(${JSON.stringify(want)})`);
 }
 
@@ -562,8 +601,9 @@ function register(ipcMain, winOf) {
   ipcMain.handle('sc:search', (_e, q) => {
     const s = String(q || '').trim().slice(0, 100);
     if (s.length < 2) return { ok: false, error: 'Query is too short' };
-    return viaWeb(async (get) => ({ ok: true, data: await searchAll(get, s) }));
+    return viaWeb(async (get) => ({ ok: true, data: await searchAll(get, s) }), 8000);
   });
+  ipcMain.handle('sc:search-more', (_e, cursor) => viaWeb(async (get) => ({ ok: true, data: await searchMore(get, cursor) }), 8000));
   // «Открыть на SoundCloud»: только адреса самого сайта
   ipcMain.handle('sc:open-link', async (_e, url) => {
     const u = typeof url === 'string' ? url.trim() : '';
@@ -585,4 +625,4 @@ function register(ipcMain, winOf) {
   });
 }
 
-module.exports = { register, _test: { fetchLibrary, collect, trackOf, toPlaylist, toUser, art, resolveStream, AuthError, trackPage, userPage, playlistPage, searchAll, hydrate, setLike } };
+module.exports = { register, _test: { fetchLibrary, collect, trackOf, toPlaylist, toUser, art, resolveStream, AuthError, trackPage, userPage, playlistPage, searchAll, searchMore, hydrate, setLike } };

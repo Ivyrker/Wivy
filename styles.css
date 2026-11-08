@@ -718,7 +718,7 @@ kbd { padding: 2px 8px; border: 1px solid var(--line); border-radius: var(--r-1)
    а под ним ровный цвет окна (--base). Поэтому ползунок прозрачности любой панели работает сам по себе:
    карточка может стать полностью прозрачной, даже если основное полотно непрозрачно. */
 .canvas, .card, .notice, .row, .result, .btn, .tab, .plat-chip, .section-title, .search, .nav-search,
-.select, .font-preview, kbd, .modal, .modal-nav, .track:hover, .vol-tip {
+.select, .font-preview, kbd, .modal, .modal-nav, .track:hover, .vol-tip, .chip {
   background-color: transparent;
   background-image: linear-gradient(var(--tint), var(--tint)), var(--wp-glass), var(--base);
   background-attachment: scroll, fixed, fixed;
@@ -743,8 +743,8 @@ kbd { padding: 2px 8px; border: 1px solid var(--line); border-radius: var(--r-1)
 .canvas, .tab.active { --tint: var(--canvas-tint); }
 .card, .notice, .row, .result { --tint: var(--cards-tint); }
 .card:hover, .result:hover, .track:hover { --tint: var(--cards-tint-hover); }
-.btn, .tab, .plat-chip, .section-title, .font-preview, kbd, .vol-tip { --tint: var(--controls-tint); }
-.btn:hover:not(:disabled), .tab:hover { --tint: var(--controls-tint-hover); }
+.btn, .tab, .plat-chip, .section-title, .font-preview, kbd, .vol-tip, .chip { --tint: var(--controls-tint); }
+.btn:hover:not(:disabled), .tab:hover, button.chip:hover:not(.on) { --tint: var(--controls-tint-hover); }
 .tab.active:hover { --tint: var(--canvas-tint); }
 .search, .nav-search, .select { --tint: var(--input-tint); }
 .modal { --tint: var(--modal-tint); }
@@ -1077,9 +1077,16 @@ button, input, select, textarea { text-shadow: inherit; }
   padding: 4px 12px;
   border: 1px solid var(--line);
   border-radius: var(--r-2);
-  background: color-mix(in srgb, var(--panel) var(--a-controls), transparent);
   font-size: var(--fs-sm);
 }
+/* фильтры поиска: чипы-кнопки; выбранный подкрашен акцентом (заливка и прозрачность — из общих настроек «кнопки и поля») */
+button.chip { display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: var(--fs-sm); color: var(--muted); cursor: pointer; }
+button.chip:hover { color: var(--text); }
+.chip.on { --tint: color-mix(in srgb, var(--accent) 38%, var(--controls-tint)); color: var(--text); border-color: var(--accent-ink); }
+.fbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; margin-bottom: 18px; }
+.fstat { margin-left: auto; color: var(--muted); font-size: var(--fs-sm); }
+.frow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 10px; }
+.flabel { min-width: 96px; color: var(--muted); font-size: var(--fs-sm); }
 .empty.small { padding: 20px 0; }
 .more-row { margin-top: 12px; }
 
