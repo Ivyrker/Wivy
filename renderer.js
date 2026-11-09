@@ -322,6 +322,14 @@
   const vkPlKey = (e) => (e && e.vkOwner && e.vkPlaylistId ? `${e.vkOwner}_${e.vkPlaylistId}` : '');
   const regVkPlaylists = (list) => list.forEach((e) => { const k = vkPlKey(e); if (k) vkPlaylistMeta.set(k, e); });
 
+  // Число треков плейлистов VK, полученное отдельными запросами: на странице списка его нет, а раздел «Плейлисты» отдаёт только первые 20.
+  const VK_COUNTS_KEY = 'music-player-vk-counts';
+  let vkCounts = {};
+  try { vkCounts = JSON.parse(localStorage.getItem(VK_COUNTS_KEY)) || {}; } catch (e) { vkCounts = {}; }
+  const saveVkCounts = () => { try { localStorage.setItem(VK_COUNTS_KEY, JSON.stringify(vkCounts)); } catch (e) { /* ничего */ } };
+  const applyVkCounts = () => DATA.vk.playlists.forEach((p) => { const k = vkPlKey(p); if (k && !p.count && vkCounts[k]) p.count = vkCounts[k]; });
+  const rememberVkCount = (ent, n) => { const k = vkPlKey(ent); if (k && n > 0) { vkCounts[k] = n; saveVkCounts(); } };
+
   // Лайки: правда лежит на сервисе. Приложение показывает то, что есть в списке лайков платформы, а ваш клик отправляет в её аккаунт.
   // likeStore хранит только то, что ещё не подтвердилось: ждёт ответа сервера, а затем перезагрузки списка. Принял сервис, и запись исчезает
   // (список уже говорит то же самое); отказал, и лайк откатывается с сообщением. Исключение — платформы, у которых в api нет метода like:
@@ -419,7 +427,7 @@
       playlists: lib.playlists.map(tag),
       following: lib.following.map(tag),
     };
-    if (id === 'vk') regVkPlaylists(DATA.vk.playlists);
+    if (id === 'vk') { applyVkCounts(); regVkPlaylists(DATA.vk.playlists); }
     rebuildAll();
   }
   rebuildAll();
@@ -851,27 +859,55 @@
   }
 
   /* ---------- Переходы и история (стрелки назад / вперёд) ---------- */
-  function show(platformId, tabId, view) {
+  // Снимок экрана для истории: положение прокрутки, запрос поиска, фильтры и раскрытые списки.
+  // «Назад» и «вперёд» возвращают экран таким, каким вы его оставили.
+  const scrollerEl = () => document.querySelector('.scroller');
+  function takeSnap() {
+    const f = state.searchFilter;
+    return { scroll: scrollerEl().scrollTop, input: $('searchInput').value, query: state.query, expanded: [...state.expanded],
+      filter: { types: [...f.types], sources: [...f.sources], dur: f.dur, hideLocked: f.hideLocked, lib: f.lib, sort: f.sort, more: f.more } };
+  }
+  // Положение прокрутки выставляется после отрисовки, а у страницы, которая ещё грузится, содержимое пока короткое,
+  // поэтому попытки повторяются при каждой перерисовке, пока не дойдём до места, пройдёт 6 секунд или вы сами не прокрутите.
+  let pendingScroll = null;
+  let scrollDeadline = 0;
+  function restoreScroll() {
+    if (pendingScroll === null) return;
+    const el = scrollerEl();
+    el.scrollTop = pendingScroll;
+    if (Math.abs(el.scrollTop - pendingScroll) < 2 || Date.now() > scrollDeadline) pendingScroll = null;
+  }
+
+  function show(platformId, tabId, view, snap) {
     state.platform = platformId;
     state.tabs[platformId] = tabId;
     state.view = view || null;
-    state.expanded = new Set();
-    state.query = '';
+    state.expanded = new Set(snap ? snap.expanded : []);
+    state.query = snap ? snap.query : '';
     remoteSearch.q = '';
     remoteSearch.seq++;
     remoteSearch.by = {};
-    state.searchFilter = newSearchFilter();
-    $('searchInput').value = '';
-    document.querySelector('.scroller').scrollTop = 0;
+    const f = newSearchFilter();
+    if (snap && snap.filter) {
+      Object.assign(f, snap.filter, { types: new Set(snap.filter.types), sources: new Set(snap.filter.sources) });
+    }
+    state.searchFilter = f;
+    $('searchInput').value = snap ? snap.input : '';
+    if (state.query) scheduleSearch({ ttl: 30 * 60 * 1000 });   // результаты берутся из кэша поиска, он при возврате живёт дольше
+    scrollerEl().scrollTop = 0;
+    pendingScroll = snap && snap.scroll > 0 ? snap.scroll : null;
+    scrollDeadline = Date.now() + 6000;
     document.querySelector('.main').classList.remove('scrolled');
     if (state.view) loadPage(state.view);
     renderAll();
+    restoreScroll();
   }
 
   // обычный переход пользователя: запоминаем в истории и обрезаем «будущее»; false — переходить было некуда
   function go(platformId, tabId, view) {
     const here = nav.stack[nav.pos];
     if (here.platform === platformId && here.tab === tabId && viewKey(here.view) === viewKey(view)) return false;
+    nav.stack[nav.pos].snap = takeSnap();   // уходим с экрана: запоминаем, как он выглядел
     nav.stack = nav.stack.slice(0, nav.pos + 1);
     nav.stack.push({ platform: platformId, tab: tabId, view: view || null });
     if (nav.stack.length > 50) nav.stack.shift();
@@ -883,9 +919,10 @@
   function stepHistory(delta) {
     const to = nav.pos + delta;
     if (to < 0 || to >= nav.stack.length) return;
+    nav.stack[nav.pos].snap = takeSnap();
     nav.pos = to;
     const s = nav.stack[to];
-    show(s.platform, s.tab, s.view);
+    show(s.platform, s.tab, s.view, s.snap);
   }
 
   /* ---------- Шрифты из локальной папки fonts ---------- */
@@ -1899,6 +1936,7 @@
 
   function scRerender() {
     renderContent();
+    restoreScroll();
     markPlaying();
     const typing = document.activeElement && document.activeElement.matches && document.activeElement.matches('#modalBody input');
     if (!$('overlay').hidden && ui.section === 'accounts' && !typing) renderBody(true);
@@ -1940,6 +1978,23 @@
     l.playlists.map((p) => [p.scId || 0, p.url, p.name, p.count]), l.following.map((u) => [u.scId || 0, u.url])]);
 
   // quiet = фоновая синхронизация: без «загрузки» на экране, перерисовка только если в библиотеке что-то изменилось
+  // у плейлистов VK без числа треков оно запрашивается в фоне (три потока), карточки обновляются по готовности
+  async function fillVkCounts() {
+    const api = vk.api();
+    if (!api || !api.playlistCounts || vk.countsBusy) return;
+    const need = DATA.vk.playlists.filter((p) => vkPlKey(p) && !p.count && !(vkCounts[vkPlKey(p)] > 0));
+    if (!need.length) return;
+    vk.countsBusy = true;
+    let r;
+    try { r = await api.playlistCounts(need.map((p) => ({ owner: p.vkOwner, id: p.vkPlaylistId, hash: p.accessHash }))); } catch (e) { r = null; }
+    vk.countsBusy = false;
+    if (r && r.auth) { scForget(vk); scSchedule(); vk.error = L(TXT.vk.expired); return scRerender(); }
+    const counts = r && r.ok && r.data && r.data.counts ? r.data.counts : {};
+    let any = false;
+    for (const [k, n] of Object.entries(counts)) if (n > 0) { vkCounts[k] = n; any = true; }
+    if (any) { saveVkCounts(); applyVkCounts(); scRerender(); }
+  }
+
   async function scRefresh(s, quiet) {
     const api = s.api();
     if (!api) return;
@@ -1958,6 +2013,7 @@
       try { localStorage.setItem(s.cache, JSON.stringify(r.library)); } catch (e) { /* не влезло, не страшно */ }
       const settled = reconcileLikes(s.id, r.library);   // сколько ждущих лайков закрыла сверка
       if (settled) updatePlayer();
+      if (s.id === 'vk') fillVkCounts();
       if (changed || !quiet || settled) scRerender();
     } else if (r && r.auth) {
       scForget(s);
@@ -2063,6 +2119,7 @@
       const tracks = r.data.tracks;
       const meta = r.data.playlist || {};   // метаданные из ответа VK; чего там нет, берём из карточки
       ent.count = meta.count || tracks.length || ent.count;   // карточка в списке теперь показывает точное число
+      rememberVkCount(ent, ent.count);
       const art = meta.art || ent.art || (tracks.find((x) => x.art) || {}).art || '';
       return { ok: true, data: { playlist: { name: meta.name || ent.name || L('Playlist'), count: meta.count || ent.count || tracks.length, art, artBig: art, url: ref.url, isAlbum: !!ent.isAlbum,
         artist: meta.artist || ent.artist || ent.author || '', artistId: 0, artistUrl: '', date: '', desc: meta.desc || '', totalDur: tracks.reduce((s, x) => s + (x.dur || 0), 0) }, tracks } };
@@ -2317,7 +2374,8 @@
     renderSoon();
   }
 
-  function scheduleSearch() {
+  function scheduleSearch(opts) {
+    const ttl = (opts && opts.ttl) || SEARCH_TTL;
     clearTimeout(remoteSearch.timer);
     const q = state.query;
     const targets = q.length >= 2 ? searchTargets() : [];
@@ -2328,7 +2386,7 @@
     const todo = [];
     for (const src of targets) {
       const hit = remoteSearch.cache.get(`${src}|${q}`);
-      if (hit && Date.now() - hit.at < SEARCH_TTL) remoteSearch.by[src] = { status: 'ok', entry: hit, error: '', auth: false, more: false };
+      if (hit && Date.now() - hit.at < ttl) remoteSearch.by[src] = { status: 'ok', entry: hit, error: '', auth: false, more: false };
       else { remoteSearch.by[src] = { status: 'loading', entry: null, error: '', auth: false, more: false }; todo.push(src); }
     }
     if (todo.length) remoteSearch.timer = setTimeout(() => todo.forEach((src) => runSource(src, q, seq)), 450);   // пауза в наборе, чтобы не слать запрос на каждую букву
@@ -2612,6 +2670,8 @@
 
   $('tbBack').addEventListener('click', () => stepHistory(-1));
   $('tbForward').addEventListener('click', () => stepHistory(1));
+
+  ['wheel', 'touchstart', 'pointerdown'].forEach((ev) => scrollerEl().addEventListener(ev, () => { pendingScroll = null; }, { passive: true }));   // своя прокрутка важнее возврата
 
   $('searchInput').addEventListener('input', (e) => {
     state.query = e.target.value.trim().toLowerCase();

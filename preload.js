@@ -44,6 +44,7 @@ contextBridge.exposeInMainWorld('api', {
     stream: (vkId, hash) => ipcRenderer.invoke('vk:stream', vkId, hash), // свежая ссылка на звук трека
     playlist: (ref) => ipcRenderer.invoke('vk:playlist', { owner: ref && ref.owner, id: ref && ref.id, hash: ref && ref.hash }), // треки и метаданные плейлиста
     search: (query) => ipcRenderer.invoke('vk:search', String(query || '')),
+    playlistCounts: (refs) => ipcRenderer.invoke('vk:playlist-counts', Array.isArray(refs) ? refs.map((r) => ({ owner: r.owner, id: r.id, hash: r.hash })) : []), // число треков плейлистов списком
     searchMore: (cursor) => ipcRenderer.invoke('vk:search-more', cursor && { sectionId: cursor.sectionId, nextFrom: cursor.nextFrom, startFrom: cursor.startFrom, blockId: cursor.blockId }),
     artist: (ref) => ipcRenderer.invoke('vk:artist', { id: ref && ref.id, slug: ref && ref.slug, name: ref && ref.name }), // номер и имя передаются строками
     openLink: (url) => ipcRenderer.invoke('vk:open-link', url),

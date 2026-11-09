@@ -410,6 +410,41 @@ async function playlistPage(ref) {
   return { tracks, playlist: meta };
 }
 
+// Число треков плейлиста, которого нет в списке (раздел «Плейлисты» отдаёт только первые 20, мобильная страница числа не содержит).
+// Лёгкий запрос: смещение за пределом списка, метаданные приходят и с пустым списком; не пришли, тогда обычная загрузка плейлиста.
+async function countOf(host, r) {
+  try {
+    const n = playlistMeta(await loadSection(host, r.owner, 999999, r.id, r.hash)).count;
+    if (n) return n;
+  } catch (e) { if (e instanceof AuthError) throw e; }
+  const meta = {};
+  const tracks = await collectTracks(host, r.owner, LIMITS.liked, r.id, r.hash, meta);
+  return meta.count || tracks.length;
+}
+
+// refs: [{ owner, id, hash }]; ответ: { counts: { 'владелец_номер': число } }. Идёт в три потока и не дольше 30 секунд; что не успело, придёт в следующий раз
+async function playlistCounts(refs) {
+  const { uid, host } = readConf();
+  if (!uid) throw new AuthError('Not signed in');
+  const list = (Array.isArray(refs) ? refs : []).slice(0, 100)
+    .map((r) => ({ owner: String((r && r.owner) || ''), id: String((r && r.id) || ''), hash: String((r && r.hash) || '') }))
+    .filter((r) => /^-?\d+$/.test(r.owner) && /^\d+$/.test(r.id) && /^[A-Za-z0-9]{0,40}$/.test(r.hash));
+  const counts = {};
+  const deadline = Date.now() + 30000;
+  let next = 0;
+  const worker = async () => {
+    while (next < list.length && Date.now() < deadline) {
+      const r = list[next++];
+      try { counts[`${r.owner}_${r.id}`] = await countOf(host, r); } catch (e) {
+        if (e instanceof AuthError) throw e;
+        log('playlist count failed:', String((e && e.message) || e));
+      }
+    }
+  };
+  await Promise.all([worker(), worker(), worker()]);
+  return { counts };
+}
+
 // Выполняется внутри страницы vk.com/audio: тот же al_audio.php, но её собственным ajax.post (со всеми служебными полями сайта)
 function inVkAjax(want) {
   return new Promise((resolve) => {
@@ -1144,6 +1179,7 @@ function register(ipcMain, winOf) {
     }
   });
   wrap('vk:search', (q) => searchVk(q));
+  wrap('vk:playlist-counts', (refs) => playlistCounts(refs));
   wrap('vk:search-more', (cursor) => searchMoreVk(cursor));
   wrap('vk:artist', (ref) => artistPage({ id: ref && ref.id, slug: ref && ref.slug, name: ref && ref.name }));
   if (process.env.MP_PROBE) setTimeout(() => runProbe().catch((e) => log('probe failed:', String((e && e.message) || e))), 8000);
@@ -1173,4 +1209,4 @@ function register(ipcMain, winOf) {
   });
 }
 
-module.exports = { register, _test: { pickStream, unmask, toTrack, parsePlaylists, decode, art, loadSection, collectTracks, AuthError, NoLinkError, stream, streamCache, like, inVkPage, playlistPage, parsePlaylists, parseTiles, dataAudioItems, parseSearch, artistsFromTracks, scrub, searchVk, searchMoreVk, artistPage, playlistMeta, hydrateItems, alAudio, runProbe, inVkAjax, readText, slugOf, isRedirect, artistFromSearch, tilesFromJson, finishSearch, unwrapHtml, frameParts, artistDocs, collectAudio, collectPlaylists, tileOf, fetchLibrary } };
+module.exports = { register, _test: { pickStream, unmask, toTrack, parsePlaylists, decode, art, loadSection, collectTracks, AuthError, NoLinkError, stream, streamCache, like, inVkPage, playlistPage, parsePlaylists, parseTiles, dataAudioItems, parseSearch, artistsFromTracks, scrub, searchVk, searchMoreVk, artistPage, playlistMeta, hydrateItems, alAudio, runProbe, inVkAjax, readText, slugOf, isRedirect, artistFromSearch, tilesFromJson, finishSearch, unwrapHtml, frameParts, artistDocs, collectAudio, collectPlaylists, tileOf, fetchLibrary, playlistCounts, countOf } };
