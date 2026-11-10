@@ -703,6 +703,8 @@ function artistDocs(text) {
     for (const m of part.matchAll(/\sdata-[\w-]+="([\[{][^"]*)"/g)) {
       let v;
       try { v = JSON.parse(decode(m[1])); } catch (e) { continue; }
+      // стартовое состояние плеера (AudioPlayerBlock/init, firstAudio) — это ваш последний прослушанный трек, а не трек исполнителя
+      if (v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).some((k) => /player/i.test(k))) continue;
       blobs++;
       collectAudio(v, items);
       collectPlaylists(v, objs);
@@ -753,16 +755,26 @@ async function artistPage(ref) {
   const key = String((ref && (ref.id || ref.slug)) || '');
   const url = (k) => (k ? `https://vk.com/artist/${k}` : `https://vk.com/search?c%5Bsection%5D=audio&q=${encodeURIComponent(name)}`);
   const page = (tracks, tiles, k) => {
-    const cover = (tracks.find((x) => x.art) || {}).art || '';
+    const cover = (tracks.find((x) => x.art) || {}).art || '';   // обложка берётся только из треков этого исполнителя
     return { artist: { name: name || (tracks[0] && tracks[0].artist) || '', art: cover, artBig: cover, url: url(k), followers: 0, trackCount: tracks.length, city: '', country: '', desc: '' },
       popular: tracks.slice(0, 10), tracks, albums: tiles.filter((x) => x.isAlbum), playlists: tiles.filter((x) => !x.isAlbum) };
   };
+  // Страница содержит и чужие треки (блоки «похожие», «слушают сейчас», плеер), поэтому берём только треки самого исполнителя:
+  // по номеру, если он известен, иначе по имени. У трека без списка исполнителей сравниваем имя в строке «исполнитель».
+  const artistId = /^\d{5,24}$/.test(String((ref && ref.id) || '')) ? String(ref.id) : '';
+  const want = name.toLowerCase();
+  const belongs = (x) => {
+    const arts = [...(x.artists || []), ...(x.featured || [])];
+    if (arts.length) return artistId ? arts.some((a) => a.id === artistId) : want ? arts.some((a) => a.name.toLowerCase() === want) : true;
+    return want ? String(x.artist).toLowerCase().includes(want) : true;
+  };
   let slug = key;
+  let dropped = 0;
   const tracks = [];
   const seenT = new Set();
   const tiles = [];
   const seenP = new Set();
-  const addTracks = (items) => items.map(toTrack).forEach((x) => { if (x && !seenT.has(x.vkId)) { seenT.add(x.vkId); tracks.push(x); } });
+  const addTracks = (items) => items.map(toTrack).forEach((x) => { if (!x || seenT.has(x.vkId)) return; if (!belongs(x)) { dropped++; return; } seenT.add(x.vkId); tracks.push(x); });
   const addTiles = (list) => list.forEach((x) => { const k = x && x.vkOwner + '_' + x.vkPlaylistId; if (x && !seenP.has(k)) { seenP.add(k); tiles.push(x); } });
   if (key && ARTIST_KEY.test(key)) {
     try {
@@ -773,7 +785,7 @@ async function artistPage(ref) {
       const docs = [artistDocs(top.text), artistDocs(albums.text)];
       docs.forEach((d) => { addTracks(d.items); addTiles(d.objs.map(tileOf).filter(Boolean)); });
       if (!tiles.length) addTiles(parseTiles(frameParts(albums.text).join(' ')).map((x) => ({ ...x, isAlbum: true })));
-      log('artist', key.slice(0, 8) + '…', slug !== key ? '→ ' + slug : '', '| top:', top.status, isRedirect(top.text) ? '(redirect again)' : '', '| blobs:', docs[0].blobs + '/' + docs[1].blobs, '| tracks:', tracks.length, '| albums:', albums.status, 'tiles:', tiles.length);
+      log('artist', key.slice(0, 8) + '…', slug !== key ? '→ ' + slug : '', '| top:', top.status, isRedirect(top.text) ? '(redirect again)' : '', '| blobs:', docs[0].blobs + '/' + docs[1].blobs, '| tracks:', tracks.length, dropped ? `(other artists skipped: ${dropped})` : '', '| albums:', albums.status, 'tiles:', tiles.length);
     } catch (e) {
       if (e instanceof AuthError) throw e;
       log('artist request failed:', String((e && e.message) || e));

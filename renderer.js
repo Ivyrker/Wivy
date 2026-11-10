@@ -2704,7 +2704,10 @@
   $('npCover').addEventListener('click', openNowPlaying);
   $('npArtist').addEventListener('click', () => {
     const t = current();
-    if (t && artistAttrs(t) && !player.error && !player.loading) openEntity('artist', { src: t.source, id: t.artistId, url: t.artistUrl, name: t.source === 'vk' ? t.artist : '' }, null, npPlatform(t));
+    if (t && artistAttrs(t) && !player.error && !player.loading) {
+      const a = t.source === 'vk' && t.artists && t.artists[0];   // у VK: номер и имя первого исполнителя, как у ссылок в списках
+      openEntity('artist', { src: t.source, id: t.artistId, url: a ? `https://vk.com/artist/${a.id}` : t.artistUrl, name: t.source === 'vk' ? (a ? a.name : t.artist) : '' }, null, npPlatform(t));
+    }
   });
 
   // настройки
