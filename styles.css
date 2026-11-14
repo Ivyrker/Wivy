@@ -85,13 +85,15 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent-ink)
 .app {
   height: 100vh;
   display: grid;
-  grid-template-columns: 72px 1fr;
+  grid-template-columns: 72px 1fr var(--queue-w, 0px);
   grid-template-rows: var(--titlebar) 1fr 84px;
   grid-template-areas:
-    "title title"
-    "rail  main"
-    "rail  player";
+    "title title  title"
+    "rail  main   queue"
+    "rail  player player";
 }
+/* ширина панели очереди = ширине строки поиска (+12 px отступа справа) */
+.app.queue-open { --queue-w: calc(clamp(260px, 23vw, 620px) + 12px); }
 
 /* ---------- Свой верхний бар окна (как в Discord) ---------- */
 .titlebar {
@@ -344,7 +346,7 @@ body.modal-open .titlebar { -webkit-app-region: no-drag; } /* чтобы кли�
 .player {
   grid-area: player;
   display: grid;
-  grid-template-columns: auto minmax(120px, 1fr) auto minmax(190px, 270px);
+  grid-template-columns: auto minmax(120px, 1fr) auto minmax(210px, 300px);
   align-items: center;
   gap: 22px;
   padding: 0 20px;
@@ -717,7 +719,7 @@ kbd { padding: 2px 8px; border: 1px solid var(--line); border-radius: var(--r-1)
 /* Фон панели = её заливка (--tint) поверх общего слоя обоев (--wp-glass), прибитого к окну (fixed),
    а под ним ровный цвет окна (--base). Поэтому ползунок прозрачности любой панели работает сам по себе:
    карточка может стать полностью прозрачной, даже если основное полотно непрозрачно. */
-.canvas, .card, .notice, .row, .result, .btn, .tab, .plat-chip, .section-title, .search, .nav-search,
+.canvas, .queue-box, .card, .notice, .row, .result, .btn, .tab, .plat-chip, .section-title, .search, .nav-search,
 .select, .font-preview, kbd, .modal, .modal-nav, .track:hover, .vol-tip, .chip {
   background-color: transparent;
   background-image: linear-gradient(var(--tint), var(--tint)), var(--wp-glass), var(--base);
@@ -740,7 +742,7 @@ kbd { padding: 2px 8px; border: 1px solid var(--line); border-radius: var(--r-1)
 .titlebar { --tint: color-mix(in srgb, var(--rail) var(--a-title), transparent); }
 .rail     { --tint: color-mix(in srgb, var(--rail) var(--a-rail), transparent); }
 .player   { --tint: color-mix(in srgb, var(--rail) var(--a-player), transparent); }
-.canvas, .tab.active { --tint: var(--canvas-tint); }
+.canvas, .queue-box, .tab.active { --tint: var(--canvas-tint); }
 .card, .notice, .row, .result { --tint: var(--cards-tint); }
 .card:hover, .result:hover, .track:hover { --tint: var(--cards-tint-hover); }
 .btn, .tab, .plat-chip, .section-title, .font-preview, kbd, .vol-tip, .chip { --tint: var(--controls-tint); }
@@ -1094,6 +1096,8 @@ button.chip:hover { color: var(--text); }
   .hero-cover { width: 200px; height: 200px; }
 }
 .card.playing .fab { opacity: 1; }
+.fab.busy { opacity: .55 !important; pointer-events: none; }   /* ▶ на карточке: идёт загрузка списка */
+.artist .cover-ico { left: 12%; top: 12%; }                      /* значок платформы на круглой обложке исполнителя */
 
 /* Треки, которые в этом окне не сыграть (только защищённый DRM-поток) */
 .lock-ico { display: inline-flex; flex-shrink: 0; color: var(--muted); }
@@ -1102,3 +1106,65 @@ button.chip:hover { color: var(--text); }
 .card.locked .cover, .card.locked .card-title, .card.locked .card-sub { opacity: .5; }
 .track.locked .mini .ico, .card.locked .fab { display: none; }
 
+
+/* =====================================================================
+   Очередь воспроизведения: панель справа от основного полотна
+   ===================================================================== */
+/* колонка очереди сдвигает основное полотно влево; верх панели вровень с верхом полотна, низ уходит под плеер, как у полотна */
+.queue {
+  grid-area: queue;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: 56px 12px 0 0;
+  background-color: color-mix(in srgb, var(--main) var(--a-main), transparent);
+}
+.queue[hidden] { display: none; }
+.queue-box {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-bottom: 0;
+  border-radius: var(--r-3) var(--r-3) 0 0;
+  overflow: hidden;
+}
+.queue-head { display: flex; align-items: center; gap: 8px; padding: 14px 8px 10px 16px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
+.queue-heading { flex: 1; min-width: 0; }
+.queue-title { font-size: var(--fs-h3); font-weight: 700; }
+.queue-sub { color: var(--muted); font-size: var(--fs-sm); min-height: 1.2em; }
+.queue-head .icon-btn { width: 30px; height: 30px; flex-shrink: 0; }
+.queue-head .icon-btn svg { width: 16px; height: 16px; }
+
+.queue-list { position: relative; flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; padding: 8px 8px 12px; }
+.queue-list::-webkit-scrollbar { width: 10px; }
+.queue-list::-webkit-scrollbar-thumb { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-1); }
+
+.q-item {
+  display: grid;
+  grid-template-columns: 16px 36px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  height: 52px;
+  padding: 0 8px;
+  border-radius: var(--r-2);
+  cursor: pointer;
+  content-visibility: auto;
+  contain-intrinsic-size: 0 52px;
+}
+.q-item:hover { background: var(--hover); }
+.q-item .mini { width: 36px; height: 36px; }
+.q-item.playing .t-title { color: var(--accent-ink); }
+.q-item.locked .mini, .q-item.locked .t-meta, .q-item.locked .t-dur { opacity: .5; }
+.q-grip { display: grid; place-items: center; color: var(--muted); cursor: grab; }
+.q-grip svg { width: 16px; height: 16px; }
+.q-item:active .q-grip { cursor: grabbing; }
+.q-item.dragging { opacity: .4; }
+.q-item.over-top { box-shadow: inset 0 2px 0 var(--accent); }
+.q-item.over-bottom { box-shadow: inset 0 -2px 0 var(--accent); }
+.q-item:hover .mini .ico, .q-item.playing .mini .ico { opacity: 1; }
+.q-item .t-title, .q-item .t-artist { overflow: hidden; }
+.icon-btn.on svg { filter: none; }

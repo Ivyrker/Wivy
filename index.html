@@ -43,6 +43,20 @@
       </div>
     </main>
 
+    <!-- Панель текущей очереди: открывается справа от основного полотна -->
+    <aside class="queue" id="queuePanel" hidden>
+      <div class="queue-box">
+        <div class="queue-head">
+          <div class="queue-heading">
+            <div class="queue-title" id="queueTitle"></div>
+            <div class="queue-sub" id="queueSub"></div>
+          </div>
+          <button class="icon-btn" id="queueClose" aria-label="Close"></button>
+        </div>
+        <div class="queue-list" id="queueList"></div>
+      </div>
+    </aside>
+
     <!-- Нижний плеер в стиле SoundCloud -->
     <footer class="player">
       <div class="transport">
@@ -75,6 +89,7 @@
           <div class="card-src np-src" id="npSrc"></div>
         </div>
         <button class="icon-btn heart" id="likeBtn" title="Нравится"></button>
+        <button class="icon-btn" id="queueBtn" aria-label="Queue"></button>
       </div>
     </footer>
   </div>

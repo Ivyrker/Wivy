@@ -257,7 +257,7 @@
   /* ---------- Данные ---------- */
   // Подключены SoundCloud (soundcloud.js) и VK Музыка (vk.js): их библиотеки приходят из основного процесса.
   // У остальных платформ данных нет, поэтому вместо треков показывается плашка «Demo data».
-  const emptyData = () => ({ connected: false, recent: [], recommended: [], liked: [], playlists: [], following: [] });
+  const emptyData = () => ({ connected: false, recent: [], recommended: [], liked: [], playlists: [], following: [], artists: [] });   // artists: исполнители из библиотеки (не подписки)
   const DATA = {};
   PLATFORMS.forEach((p) => { DATA[p.id] = emptyData(); });
   const trackIds = new Map();   // один и тот же трек всегда получает один и тот же внутренний номер
@@ -278,7 +278,7 @@
   function rebuildAll() {
     const parts = PLATFORMS.filter((p) => p.id !== 'all').map((p) => DATA[p.id]).filter((d) => d.connected);
     const mix = (key) => interleave(parts.map((d) => d[key]));
-    DATA.all = { connected: parts.length > 0, recent: mix('recent'), recommended: mix('recommended'), liked: mix('liked'), playlists: mix('playlists'), following: mix('following') };
+    DATA.all = { connected: parts.length > 0, recent: mix('recent'), recommended: mix('recommended'), liked: mix('liked'), playlists: mix('playlists'), following: mix('following'), artists: mix('artists') };
     likedKeys = new Set();
     PLATFORMS.filter((p) => p.id !== 'all').forEach((p) => DATA[p.id].liked.forEach((x) => likedKeys.add(trackKey(x.source, x))));
   }
@@ -426,6 +426,7 @@
       liked: lib.liked.map(track),
       playlists: lib.playlists.map(tag),
       following: lib.following.map(tag),
+      artists: (lib.artists || []).map(tag),
     };
     if (id === 'vk') { applyVkCounts(); regVkPlaylists(DATA.vk.playlists); }
     rebuildAll();
@@ -452,7 +453,7 @@
 
   const ui = { section: 'appearance', sub: 'theme', search: '' };
   const player = { queue: [], index: -1, playing: false, elapsed: 0, timer: null, liked: new Set(),
-                   shuffle: false, repeat: 'off', history: [], loading: false, error: '' }; // repeat: off | all | one
+                   shuffle: false, repeat: 'off', history: [], loading: false, error: '', qgen: 0 }; // repeat: off | all | one
   let visibleTracks = [];
 
   /* ---------- Хелперы ---------- */
@@ -716,6 +717,18 @@
   /* ---------- Содержимое ---------- */
   // отметка платформы показывается только в «Все треки»
   const markMode = () => (state.platform === 'all' ? settings.sourceMode : null);
+  // Отметка платформы у карточек любого вида (треки, плейлисты, альбомы, исполнители): общая для всех и берётся из настройки sourceMode.
+  // Показывается только во «Все треки»; на вкладке одной платформы отметок нет.
+  function srcMarks(sourceId) {
+    const src = platform(sourceId);
+    const mode = markMode();
+    return {
+      cls: mode === 'label' ? 'with-label' : '',
+      cover: mode === 'icon' ? `<span class="cover-ico" style="${srcVars(src)}" title="${esc(src.name)}">${I[src.icon]}</span>` : '',
+      title: mode === 'title' ? srcIcon(src, 'sm') : '',
+      label: mode === 'label' ? `<div class="card-src" style="${srcVars(src)}"><i class="dot"></i>${esc(src.name)}</div>` : '',
+    };
+  }
   const srcIcon = (src, size) =>
     `<span class="src-ico ${size}" style="${srcVars(src)}" title="${esc(src.name)}">${I[src.icon]}</span>`;
 
@@ -818,7 +831,8 @@
       const more = data.recommended;
       const noRecs = !more.length;
       const filler = noRecs ? data.liked.filter((x) => !recent.some((r) => r.id === x.id)).slice(0, 20) : [];
-      const artists = noRecs ? data.following.slice(0, 6) : [];
+      const seenA = new Set();
+      const artists = noRecs ? [...data.following, ...data.artists].filter((x) => !seenA.has(x.url || x.name) && seenA.add(x.url || x.name)).slice(0, 6) : [];
       const lists = noRecs ? data.playlists.slice(0, 6) : [];
       visibleTracks = recent.concat(more, filler);
       const recentTitle = state.platform === 'vk' ? 'Recently added' : 'Recently played';
@@ -826,7 +840,7 @@
         ${SVCS[state.platform] ? accountBar(SVCS[state.platform]) : ''}
         ${recent.length ? `<div class="section"><div class="section-title">${L(recentTitle)}</div><div class="grid">${recent.map(trackCard).join('')}</div></div>` : ''}
         ${more.length ? `<div class="section"><div class="section-title">${L('Recommended')}</div>${trackList(more)}</div>` : ''}
-        ${artists.length ? sectionHtml(L('Artists'), grid(artists.map(userCard).join(''))) : ''}
+        ${artists.length ? sectionHtml(L(state.platform === 'vk' ? 'Artists in your library' : 'Artists'), grid(artists.map(userCard).join(''))) : ''}
         ${lists.length ? sectionHtml(L('Playlists'), grid(lists.map(playlistCard).join(''))) : ''}
         ${filler.length ? sectionHtml(L('From your library'), trackList(filler)) : ''}
         ${recent.length || more.length || filler.length ? '' : emptyHtml()}`;
@@ -846,7 +860,8 @@
       el.innerHTML = `
         <div class="section">
           <div class="section-title">${L('Following')}</div>
-          ${data.following.length ? `<div class="grid">${data.following.map(userCard).join('')}</div>` : emptyHtml()}
+          ${data.following.length ? `<div class="grid">${data.following.map(userCard).join('')}</div>`
+            : state.platform === 'vk' ? `<div class="notice"><p><b>${L('Followed artists')}</b>${esc(L('VK Music does not give the app your followed artists yet. Artists from your library are shown on the Home page.'))}</p></div>` : emptyHtml()}
         </div>`;
     }
   }
@@ -1699,9 +1714,155 @@
     $('repeatBtn').innerHTML = player.repeat === 'one' ? I.repeatOne : I.repeat;
     $('repeatBtn').title = L(REPEAT_TITLES[player.repeat]);
 
+    $('queueBtn').title = L('Queue');
+    $('queueBtn').setAttribute('aria-label', L('Queue'));
+
     updateProgress();
     markPlaying();
     syncHero();
+    renderQueue();
+  }
+
+  /* ---------- Очередь воспроизведения ---------- */
+  // player.queue — отдельная копия списка, с которого начали играть (playTrack, playList делают slice()), поэтому перестановки
+  // здесь не затрагивают сами списки на страницах (плейлисты, альбомы, лайки), а запуск другого списка заменяет очередь целиком.
+  const queueUi = { open: false, sig: '', drag: -1, over: -1, dragging: false };
+
+  const queueSig = () => `${player.qgen}|${player.index}|${player.playing ? 1 : 0}|${player.queue.reduce((n, t) => n + (t.lock ? 1 : 0), 0)}`;
+
+  function queueRow(t, i) {
+    const cur = i === player.index;
+    return `
+      <div class="q-item ${cur ? 'playing' : ''} ${t.lock ? 'locked' : ''}" draggable="true" data-qi="${i}">
+        <span class="q-grip" title="${esc(L('Drag to reorder'))}">${I.grip}</span>
+        <div class="mini" style="background:${esc(coverBg(t.title + t.artist, t.art))}"><span class="ico">${cur && player.playing ? I.pause : I.play}</span></div>
+        <div class="t-meta">
+          <div class="t-title"><span class="t-text">${esc(t.title)}</span>${lockIcon(t)}</div>
+          <div class="t-artist">${esc(t.artist)}</div>
+        </div>
+        <div class="t-dur">${fmt(t.dur)}</div>
+      </div>`;
+  }
+
+  function renderQueue(force, reveal) {
+    if (!queueUi.open) return;
+    const sig = queueSig();
+    if (!force && sig === queueUi.sig) return;
+    const list = $('queueList');
+    const prevIndex = Number(queueUi.sig.split('|')[1]);
+    const top = list.scrollTop;
+    queueUi.sig = sig;
+    const total = player.queue.reduce((s, t) => s + (t.dur || 0), 0);
+    $('queueTitle').textContent = L('Queue');
+    $('queueSub').textContent = player.queue.length
+      ? [L('{0} tr.', player.queue.length), total ? fmtLong(total) : ''].filter(Boolean).join(' · ') : '';
+    $('queueClose').title = L('Close');
+    $('queueClose').setAttribute('aria-label', L('Close'));
+    if (queueUi.dragging) return;   // во время перетаскивания список не пересоздаём
+    list.innerHTML = player.queue.length ? player.queue.map(queueRow).join('')
+      : `<div class="empty small">${esc(L('The queue is empty. Start playing a track.'))}</div>`;
+    list.scrollTop = top;
+    // при смене трека или открытии панели играющий трек подводим в поле зрения
+    if (reveal || (player.index >= 0 && player.index !== prevIndex)) {
+      const el = list.querySelector('.q-item.playing');
+      if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest' });
+    }
+  }
+
+  function setQueueOpen(on) {
+    queueUi.open = !!on;
+    $('queuePanel').hidden = !queueUi.open;
+    document.querySelector('.app').classList.toggle('queue-open', queueUi.open);
+    $('queueBtn').classList.toggle('on', queueUi.open);
+    if (queueUi.open) renderQueue(true, true);
+    schedulePosition();   // основное полотно сузилось: вырез под вкладкой нужно пересчитать
+  }
+
+  // перенос трека: from — его номер, to — номер места «перед которым» вставить (0…n), считая до удаления
+  function moveInQueue(from, to) {
+    const q = player.queue;
+    if (from < 0 || from >= q.length) return;
+    let dest = Math.max(0, Math.min(q.length, to));
+    if (dest > from) dest--;
+    if (dest === from) return;
+    const cur = current();
+    const past = player.history.map((i) => q[i]);   // история хранит номера: переводим через сами треки
+    const [item] = q.splice(from, 1);
+    q.splice(dest, 0, item);
+    player.index = cur ? q.indexOf(cur) : -1;
+    player.history = past.map((t) => q.indexOf(t)).filter((i) => i >= 0);
+    player.qgen++;
+    renderQueue(true);
+  }
+
+  function queueDropTarget(e) {
+    const it = e.target.closest ? e.target.closest('.q-item') : null;
+    if (!it) return null;
+    const r = it.getBoundingClientRect();
+    const i = Number(it.dataset.qi);
+    return { el: it, to: e.clientY > r.top + r.height / 2 ? i + 1 : i };
+  }
+  function clearQueueMarks() {
+    $('queueList').querySelectorAll('.over-top, .over-bottom, .dragging').forEach((el) => el.classList.remove('over-top', 'over-bottom', 'dragging'));
+  }
+
+  function initQueue() {
+    const list = $('queueList');
+    $('queueBtn').innerHTML = I.queue;
+    $('queueClose').innerHTML = I.close;
+    $('queueBtn').addEventListener('click', () => setQueueOpen(!queueUi.open));
+    $('queueClose').addEventListener('click', () => setQueueOpen(false));
+
+    list.addEventListener('click', (e) => {
+      const it = e.target.closest('.q-item');
+      if (!it) return;
+      const i = Number(it.dataset.qi);
+      if (i === player.index) { if (!locked(current())) toggle(); else playAt(i, false); return; }
+      player.advance = false;   // прямой клик: закрытый трек объяснит, почему он не играет
+      playAt(i);
+    });
+
+    list.addEventListener('dragstart', (e) => {
+      const it = e.target.closest ? e.target.closest('.q-item') : null;
+      if (!it) return;
+      queueUi.drag = Number(it.dataset.qi);
+      queueUi.dragging = true;
+      e.dataTransfer.effectAllowed = 'move';
+      try { e.dataTransfer.setData('text/plain', String(queueUi.drag)); } catch (err) { /* ничего */ }
+      setTimeout(() => it.classList.add('dragging'), 0);
+    });
+    list.addEventListener('dragover', (e) => {
+      if (queueUi.drag < 0) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      const r = list.getBoundingClientRect();   // у краёв список сам прокручивается
+      if (e.clientY < r.top + 40) list.scrollTop -= 14;
+      else if (e.clientY > r.bottom - 40) list.scrollTop += 14;
+      const t = queueDropTarget(e);
+      list.querySelectorAll('.over-top, .over-bottom').forEach((el) => el.classList.remove('over-top', 'over-bottom'));
+      if (!t) { queueUi.over = -1; return; }
+      queueUi.over = t.to;
+      t.el.classList.add(t.to > Number(t.el.dataset.qi) ? 'over-bottom' : 'over-top');
+    });
+    list.addEventListener('drop', (e) => {
+      if (queueUi.drag < 0) return;
+      e.preventDefault();
+      const t = queueDropTarget(e);
+      const from = queueUi.drag;
+      const to = t ? t.to : queueUi.over;
+      queueUi.drag = -1;
+      queueUi.dragging = false;
+      clearQueueMarks();
+      if (to >= 0) moveInQueue(from, to); else renderQueue(true);
+    });
+    list.addEventListener('dragend', () => {
+      queueUi.drag = -1;
+      queueUi.over = -1;
+      const was = queueUi.dragging;
+      queueUi.dragging = false;
+      clearQueueMarks();
+      if (was) renderQueue(true);   // отмена: список мог измениться, пока шло перетаскивание
+    });
   }
 
   // ближайший трек, который можно играть: идём от start в сторону dir, по кругу
@@ -1796,6 +1957,7 @@
     if (current() && current().id === id) return locked(current()) ? undefined : toggle();
     player.advance = false;
     player.queue = visibleTracks.slice();
+    player.qgen++;
     player.history = [];
     player.index = -1;   // другой список: номер мог совпасть с прежним, и звук остался бы от старого трека
     playAt(player.queue.findIndex((t) => t.id === id), false);
@@ -1930,7 +2092,7 @@
     soundcloud: { connect: 'Connect SoundCloud', loading: 'Loading your SoundCloud library…', synced: 'Library synced with SoundCloud.', expired: 'Your SoundCloud session expired. Connect again.' },
     vk:         { connect: 'Connect VK Music',   loading: 'Loading your VK Music library…',   synced: 'Library synced with VK Music.',   expired: 'Your VK Music session expired. Connect again.' },
   };
-  const LIB_V = { soundcloud: 4, vk: 4 };   // версия формата библиотеки: у кэша старой версии нет полей, нужных страницам и замкам
+  const LIB_V = { soundcloud: 4, vk: 5 };   // версия формата библиотеки: у кэша старой версии нет полей, нужных страницам и замкам
   const scApi = () => sc.api();
   const scErrorText = (e) => String(e || '');
 
@@ -2147,7 +2309,7 @@
     return { kind, title: d.playlist.name, pl: me(d.playlist), tracks: d.tracks.map(mt) };
   }
 
-  async function loadPage(v, force) {
+  async function loadPageRun(v, force) {
     const key = viewKey(v);
     const hit = pages.get(key);
     if (hit && (hit.status === 'loading' || (hit.status === 'ok' && !force && Date.now() - hit.at < 5 * 60 * 1000))) return;
@@ -2166,6 +2328,17 @@
       if (r && r.auth) { const s = SVCS[v.src] || sc; scForget(s); scSchedule(); s.error = L(TXT[s.id].expired); }
     }
     if (viewKey(state.view) === key) { renderTitlebar(); scRerender(); }
+  }
+
+  // обёртка: возвращает обещание загрузки (для уже идущей загрузки то же самое), чтобы можно было дождаться страницы
+  function loadPage(v, force) {
+    const key = viewKey(v);
+    const hit = pages.get(key);
+    if (hit && hit.status === 'loading' && hit.promise) return hit.promise;
+    const p = loadPageRun(v, force);   // тело сразу записывает статус «loading»
+    const cur = pages.get(key);
+    if (cur && cur.status === 'loading') cur.promise = p;
+    return p;
   }
 
   /* --- мелкие кирпичи страниц --- */
@@ -2201,22 +2374,29 @@
   };
 
   function playlistCard(pl) {
-    const sub = [state.platform === 'all' ? platform(pl.source).name : '', pl.isAlbum ? L('Album') : '', pl.count ? L('{0} tr.', pl.count) : ''].filter(Boolean).join(', ');
+    const m = srcMarks(pl.source);
+    const sub = [pl.isAlbum ? L('Album') : '', pl.count ? L('{0} tr.', pl.count) : ''].filter(Boolean).join(', ');
     const open = !!(pl.scId || pl.url);   // страница плейлиста есть у SoundCloud и VK
     return `
-      <div class="card" ${open ? `data-open="playlist" ${refAttrs(pl.source, pl.scId, pl.url)}` : ''}>
-        <div class="cover" style="background:${esc(coverBg(pl.name, pl.art))}">${open ? `<span class="fab">${I.play}</span>` : ''}</div>
-        <div class="card-title"><span class="t-text">${esc(pl.name)}</span></div>
+      <div class="card ${m.cls}" ${open ? `data-open="playlist" ${refAttrs(pl.source, pl.scId, pl.url)}` : ''}>
+        <div class="cover" style="background:${esc(coverBg(pl.name, pl.art))}">${m.cover}${open ? `<span class="fab">${I.play}</span>` : ''}</div>
+        <div class="card-title">${m.title}<span class="t-text">${esc(pl.name)}</span></div>
         <div class="card-sub">${esc(sub)}</div>
+        ${m.label}
       </div>`;
   }
 
-  const userCard = (u) => `
-      <div class="card artist" ${u.scId || u.url ? `data-open="artist" ${refAttrs(u.source, u.scId, u.url, u.name)}` : ''}>
-        <div class="cover" style="background:${esc(coverBg(u.name, u.art))}"></div>
-        <div class="card-title"><span class="t-text">${esc(u.name)}</span></div>
-        ${u.followers ? `<div class="card-sub">${esc(L('{0} followers', fmtNum(u.followers)))}</div>` : u.trackCount ? `<div class="card-sub">${esc(L('{0} tr.', u.trackCount))}</div>` : ''}
+  function userCard(u) {
+    const m = srcMarks(u.source);
+    const sub = u.followers ? L('{0} followers', fmtNum(u.followers)) : u.trackCount ? L('{0} tr.', u.trackCount) : '';
+    return `
+      <div class="card artist ${m.cls}" ${u.scId || u.url ? `data-open="artist" ${refAttrs(u.source, u.scId, u.url, u.name)}` : ''}>
+        <div class="cover" style="background:${esc(coverBg(u.name, u.art))}">${m.cover}</div>
+        <div class="card-title">${m.title}<span class="t-text">${esc(u.name)}</span></div>
+        ${sub ? `<div class="card-sub">${esc(sub)}</div>` : ''}
+        ${m.label}
       </div>`;
+  }
 
   const sectionHtml = (title, body) => `<div class="section"><div class="section-title">${esc(title)}</div>${body}</div>`;
   const aboutHtml = (desc) => (desc ? sectionHtml(L('About'), `<div class="about">${esc(desc)}</div>`) : '');
@@ -2239,10 +2419,16 @@
   }
 
   // кнопка «Играть» в шапке показывает паузу, пока играет трек с этой страницы
+  // Кнопка в шапке страницы управляет треками этой страницы; на странице трека это только сам трек: похожие треки ниже в очередь, но не в кнопку
+  function heroTracks() {
+    const pg = state.view ? pages.get(viewKey(state.view)) : null;
+    return pg && pg.status === 'ok' && pg.data.kind === 'track' ? [pg.data.track] : visibleTracks;
+  }
   function syncHero() {
     const btn = document.querySelector('#content [data-act="play"]');
     if (!btn) return;
-    const on = player.playing && !!current() && visibleTracks.some((x) => x.id === current().id);
+    const scope = heroTracks();
+    const on = player.playing && !!current() && scope.some((x) => x.id === current().id);
     btn.innerHTML = (on ? I.pause : I.play) + `<span>${esc(L(on ? 'Pause' : 'Play'))}</span>`;
   }
 
@@ -2623,15 +2809,37 @@
     if (!go(plat, state.tabs[plat], view) && pendingPlay) renderContent();   // страница уже открыта: просто запускаем
   }
 
-  function playAll(shuffle) {
-    if (!visibleTracks.length) return;
-    if (!shuffle && current() && !locked(current()) && visibleTracks.some((x) => x.id === current().id)) return toggle();
+  // запустить список с начала (или с случайного трека); закрытые треки очередь пропускает
+  function playList(list, shuffle) {
+    if (!list.length) return;
     player.advance = true;
-    player.queue = visibleTracks.slice();
+    player.queue = list.slice();
+    player.qgen++;
     player.history = [];
     player.index = -1;
     if (shuffle) player.shuffle = true;
     playAt(shuffle ? Math.floor(Math.random() * player.queue.length) : 0, false);
+  }
+  function playAll(shuffle) {
+    if (!visibleTracks.length) return;
+    if (!shuffle && current() && !locked(current()) && heroTracks().some((x) => x.id === current().id)) return toggle();
+    playList(visibleTracks, shuffle);
+  }
+
+  // ▶ на карточке плейлиста или альбома запускает воспроизведение и не открывает страницу
+  async function playEntity(kind, ref) {
+    const view = { kind, src: ref.src || 'soundcloud', id: Math.floor(Number(ref.id)) || 0, url: ref.url || '', name: ref.name || '' };
+    await loadPage(view);   // уже загруженная страница берётся из кэша
+    const pg = pages.get(viewKey(view));
+    if (!pg || pg.status !== 'ok') {
+      player.error = L('Could not play this: {0}', String((pg && pg.error) || 'Unknown error'));
+      player.playing = false;
+      return updatePlayer();
+    }
+    const d = pg.data;
+    const seen = new Set();
+    const list = d.kind === 'playlist' ? d.tracks : d.kind === 'artist' ? [...d.popular, ...d.tracks] : [d.track];
+    playList(list.filter((x) => x && !seen.has(x.id) && seen.add(x.id)), false);
   }
 
   function pageAction(btn) {
@@ -2689,7 +2897,15 @@
     if (act) return pageAction(act);
     // ссылки на страницы (название, исполнитель, карточки плейлистов и исполнителей) перехватывают клик раньше, чем строка трека
     const open = e.target.closest('[data-open]');
-    if (open) return openEntity(open.dataset.open, { src: open.dataset.src, id: open.dataset.id, url: open.dataset.url, name: open.dataset.name }, { autoplay: !!e.target.closest('.fab') });
+    if (open) {
+      const ref = { src: open.dataset.src, id: open.dataset.id, url: open.dataset.url, name: open.dataset.name };
+      const fab = e.target.closest('.fab');
+      if (fab && open.contains(fab)) {   // ▶ на карточке: играть, страницу не открывать
+        fab.classList.add('busy');
+        return playEntity(open.dataset.open, ref).catch(() => {}).then(() => fab.classList.remove('busy'));
+      }
+      return openEntity(open.dataset.open, ref);
+    }
     const row = e.target.closest('[data-track]');
     if (row) playTrack(Number(row.dataset.track));
   });
@@ -2988,6 +3204,7 @@
   $('nextBtn').innerHTML = I.next;
   $('shuffleBtn').innerHTML = I.shuffle;
   $('likeBtn').innerHTML = I.heart;
+  initQueue();
   $('closeBtn').innerHTML = I.close;
   $('playBtn').innerHTML = I.play;
   if (settings.rememberVolume) $('vol').value = settings.volume;

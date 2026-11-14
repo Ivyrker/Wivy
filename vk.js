@@ -239,14 +239,15 @@ async function fetchLibrary() {
   return {
     me: { name: name || 'id' + uid, avatar: '', url: `https://vk.com/id${uid}` },
     mode: 'web',
-    v: 4,                                          // версия формата списков (в кэше интерфейса): 4 — есть following и число треков плейлистов
+    v: 5,                                          // версия формата списков (в кэше интерфейса): 5 — исполнители из библиотеки лежат в artists, а following пуст
     updated: Date.now(),
     recent: liked.slice(0, LIMITS.recent), // у VK нет истории прослушиваний, поэтому здесь последние добавленные треки
     recommended: [],
     liked,
     likedComplete: liked.length < LIMITS.liked,   // false: список обрезан лимитом, и отсутствие трека в нём ничего не доказывает
     playlists,
-    following: artistsFromTracks(liked, 100),   // у VK нет списка подписок, который я мог бы подтвердить: показываем исполнителей из вашей библиотеки
+    following: [],                              // настоящие подписки на исполнителей: запрос VK пока не подтверждён (см. шаг 9 пробы)
+    artists: artistsFromTracks(liked, 100),     // исполнители из вашей библиотеки (для главной), это не подписки
     warnings,
   };
 }
@@ -1075,6 +1076,39 @@ async function runProbe() {
     const o = r.payload[1] && typeof r.payload[1] === 'object' ? r.payload[1] : {};
     const p = parseSearch(r.payload);
     return { via: r.via, keys: Object.keys(o).join(','), blocks: p.blocks, tracks: collectAudio(r.payload, []).length, htmlLength: p.html.length, head: S(p.html, 300) };
+  });
+  // подписки на исполнителей: какой раздел отдаёт именно их (по формам ответов видно, что за объекты приходят)
+  await step('9_following', async () => {
+    const res = {};
+    const walkLike = (root) => {
+      const found = [];
+      const walk = (x, d) => {
+        if (!x || typeof x !== 'object' || d > 8 || found.length >= 400 || looksLikeAudio(x)) return;
+        if (!Array.isArray(x) && x.id !== undefined && (x.name || x.title) && !x.list && x.ownerId === undefined) found.push(x);
+        for (const v of Array.isArray(x) ? x : Object.values(x)) walk(v, d + 1);
+      };
+      walk(root, 0);
+      return found;
+    };
+    for (const name of ['artists', 'followed_artists', 'subscriptions', 'my_artists', 'artist_follows']) {
+      try {
+        const r = await alAudio(host, { al: '1', act: 'section', claim: '0', is_layer: '0', owner_id: String(uid), section: name }, 'probe-follow-' + name, { page: false });
+        const o = r.payload[1] && typeof r.payload[1] === 'object' ? r.payload[1] : {};
+        const p = parseSearch(r.payload);
+        const like = walkLike(r.payload);
+        res[name] = { via: r.via, keys: Object.keys(o).join(','), blocks: p.blocks, audioArrays: collectAudio(o, []).length, htmlLength: p.html.length,
+          artistClasses: [...new Set((p.html.match(/class="([^"]+)"/g) || []).flatMap((x) => x.slice(7, -1).split(/\s+/)).filter((x) => /rtist/.test(x)))].slice(0, 30).join(' '),
+          artistLike: like.length, artistLikeKeys: S(like.slice(0, 3).map((x) => Object.keys(x).join(',')), 300), artistLikeSample: like.slice(0, 4).map((x) => ({ id: S(x.id, 22), name: S(x.name || x.title, 30) })), head: S(p.html, 200) };
+      } catch (e) { res[name] = 'FAILED: ' + String((e && e.message) || e); }
+    }
+    for (const pth of [`/audio?act=audio_artists${uid}`, '/audio?act=artists']) {
+      try {
+        const pg = await request(host, pth);
+        const cls = [...new Set((unwrapHtml(pg.text).match(/class="([^"]+)"/g) || []).flatMap((x) => x.slice(7, -1).split(/\s+/)).filter((x) => /rtist/i.test(x)))].slice(0, 30).join(' ');
+        res['mobile ' + pth.slice(0, 34)] = { length: pg.text.length, classes: cls, head: S(pg.text, 200) };
+      } catch (e) { res['mobile ' + pth.slice(0, 34)] = 'FAILED: ' + String((e && e.message) || e); }
+    }
+    return res;
   });
   log('probe done →', file);
 }
