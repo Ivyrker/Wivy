@@ -745,7 +745,7 @@ async function artistFromSearch(name, id) {
   };
   let s = await searchVk(name);
   take(s);
-  for (let i = 0; i < 2 && s.cursor && tracks.length < 40; i++) { s = await searchMoreVk(s.cursor); take(s); }
+  for (let i = 0; i < 8 && s.cursor && tracks.length < 300; i++) { s = await searchMoreVk(s.cursor); take(s); }
   return { tracks, tiles };
 }
 
@@ -793,7 +793,7 @@ async function artistPage(ref) {
     }
   }
   // страница дала мало треков (бывает один «первый» трек): дополняем поиском по номеру исполнителя, он подтверждён пробой
-  if (tracks.length < 10 && name.length >= 2) {
+  if (tracks.length < 60 && name.length >= 2) {
     try {
       const r = await artistFromSearch(name, /^\d{5,24}$/.test(key) ? key : '');
       r.tracks.forEach((x) => { if (!seenT.has(x.vkId)) { seenT.add(x.vkId); tracks.push(x); } });   // уже готовые треки: toTrack не нужен
@@ -805,6 +805,298 @@ async function artistPage(ref) {
   }
   if (tracks.length || tiles.length) return page(tracks, tiles, slug);
   throw new Error('No data for this artist');
+}
+
+// Разделы страницы исполнителя: все треки, релизы, синглы и EP, альбомы (адреса вида vk.ru/artist/имя/top_audios).
+// Страница запрашивается как обычная (с вашими cookie) и разбирается теми же разборщиками, что и ответы al_artist.php; в журнал пишется,
+// что нашлось, чтобы можно было уточнить разбор, если VK изменит разметку.
+// Запасной разбор страницы без data-audio: VK кладёт данные в JSON внутри скриптов. Ищем по форме элементов треков и плиток прямо в тексте.
+function matchEnd(s, i, open, close) {   // конец парной скобки с учётом строк; не дальше 6000 знаков
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let k = i; k < s.length && k < i + 6000; k++) {
+    const ch = s[k];
+    if (inStr) { if (esc) esc = false; else if (ch === '\\') esc = true; else if (ch === '"') inStr = false; continue; }
+    if (ch === '"') inStr = true;
+    else if (ch === open) depth++;
+    else if (ch === close && --depth === 0) return k;
+  }
+  return -1;
+}
+function scanEmbedded(text) {
+  const t = String(text || '');
+  const s = t.includes('\\"') ? t.replace(/\\"/g, '"').replace(/\\\//g, '/') : t;
+  const items = [];
+  const objs = [];
+  let n = 0;
+  for (const m of s.matchAll(/\[-?\d{1,12},-?\d{1,12},"/g)) {
+    if (++n > 5000) break;
+    const end = matchEnd(s, m.index, '[', ']');
+    if (end < 0) continue;
+    try { const a = JSON.parse(s.slice(m.index, end + 1)); if (looksLikeAudio(a)) items.push(a); } catch (e) { /* не наш массив */ }
+  }
+  n = 0;
+  for (const m of s.matchAll(/"ownerId"\s*:/g)) {
+    if (++n > 3000) break;
+    const start = s.lastIndexOf('{', m.index);
+    if (start < 0) continue;
+    const end = matchEnd(s, start, '{', '}');
+    if (end < 0) continue;
+    try { const o = JSON.parse(s.slice(start, end + 1)); if (o && o.id !== undefined && o.title) objs.push(o); } catch (e) { /* не плитка */ }
+  }
+  return { items, objs };
+}
+// файл со страницей для разбора: лежит в папке данных приложения, в журнал идёт только путь и краткая сводка
+function dumpArtistPage(text, name, uid) {
+  try {
+    const file = path.join(app.getPath('userData'), `vk-artist-${name}.html`);
+    fs.writeFileSync(file, scrub(String(text), uid).slice(0, 3 * 1024 * 1024));
+    const count = (re) => (String(text).match(re) || []).length;
+    const ids = [...new Set([...String(text).matchAll(/(?:sectionId|section_id)["']?\s*[:=]\s*["']([A-Za-z0-9_\-]{4,80})/g)].map((x) => x[1]))].slice(0, 8);
+    log('artist page dump:', file, '| CatalogBlock:', count(/CatalogBlock/g), '| audio_row:', count(/audio_row/g), '| ownerId:', count(/ownerId/g), '| <script:', count(/<script/g), '| sections:', ids.join(',') || '-');
+  } catch (e) { log('dump failed:', String((e && e.message) || e)); }
+}
+
+// Открывает страницу исполнителя в скрытом окне, листает её и собирает готовый HTML и тела ответов сети (JSON, HTML).
+// Не ждёт полной загрузки страницы (у приложения VK она не заканчивается), работает не дольше ~14 секунд и отдаёт то, что успело прийти.
+async function renderArtist(host, slug, section, uid) {
+  const out = { html: '', bodies: [], probe: '', net: false };
+  const win = new BrowserWindow({ show: false, width: 1280, height: 900, webPreferences: { partition: PARTITION, sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } });
+  win.webContents.setUserAgent(chromeUA());
+  const dbg = win.webContents.debugger;
+  const pending = new Map();
+  const short = (u) => { try { const x = new URL(u); return x.hostname + x.pathname + (x.searchParams.get('act') ? '?act=' + x.searchParams.get('act') : ''); } catch (e) { return String(u).slice(0, 60); } };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const hasData = () => out.bodies.some((b) => /\[-?\d{1,12},-?\d{1,12},"|"ownerId"/.test(b.body));
+  const run = async () => {
+    win.loadURL(`https://${host}/artist/${slug}/${section}`).catch(() => {});   // конца загрузки не ждём
+    // отладчик подключаем уже после начала загрузки и не дольше 3 секунд: на пустом окне команда может не вернуться
+    try {
+      await Promise.race([(async () => {
+        dbg.attach('1.3');
+        dbg.on('message', (_e, method, p) => {
+          if (method === 'Network.responseReceived') {
+            const u = String((p.response && p.response.url) || '');
+            if (/^https:\/\/([\w-]+\.)*vk\.(com|ru)\//.test(u) && !/\.(?:js|css|png|jpe?g|webp|svg|woff2?|gif|ico)(?:\?|$)/i.test(u)) pending.set(p.requestId, u);
+          } else if (method === 'Network.loadingFinished' && pending.has(p.requestId)) {
+            const u = pending.get(p.requestId);
+            dbg.sendCommand('Network.getResponseBody', { requestId: p.requestId }).then((b) => {
+              const body = b.base64Encoded ? Buffer.from(b.body, 'base64').toString('utf8') : String(b.body || '');
+              if (body.length > 200) out.bodies.push({ short: short(u), body });
+            }).catch(() => {});
+          }
+        });
+        await dbg.sendCommand('Network.enable');
+        out.net = true;
+      })(), sleep(3000)]);
+      if (!out.net) log('debugger did not answer in 3 s: responses will not be captured');
+    } catch (e) { log('debugger unavailable:', String((e && e.message) || e)); }
+    const probe = `(() => { const els = [document.scrollingElement, ...document.querySelectorAll('*')].filter((e) => e && e.scrollHeight > e.clientHeight + 50);
+      els.forEach((e) => { e.scrollTop = e.scrollHeight; });
+      return [document.querySelectorAll('[data-audio]').length, document.querySelectorAll('a[href*="/audio"],a[href*="/music/"]').length, document.body ? document.body.scrollHeight : 0].join(','); })()`;
+    let last = '';
+    let still = 0;
+    for (let i = 0; i < 12 && still < 3; i++) {
+      await sleep(1000);
+      if (/login|authcheck/i.test(win.webContents.getURL())) throw new AuthError('Session expired');
+      const now = (await win.webContents.executeJavaScript(probe).catch(() => '')) + '|' + out.bodies.length;
+      still = now === last ? still + 1 : 0;
+      last = now;
+      out.probe = now;
+      if (i >= 4 && hasData() && still >= 2) break;
+    }
+    out.html = await win.webContents.executeJavaScript('document.documentElement.outerHTML').catch(() => '');
+    await sleep(400);   // дожидаемся последних тел ответов
+  };
+  let timer = null;
+  try {
+    await Promise.race([run(), new Promise((resolve) => { timer = setTimeout(() => { log('artist render: time is up, using what arrived'); resolve(); }, 18000); })]);
+  } finally {
+    clearTimeout(timer);
+    try { if (dbg.isAttached()) dbg.detach(); } catch (e) { /* ничего */ }
+    if (!win.isDestroyed()) win.destroy();
+  }
+  try {   // для диагностики: что пришло из сети и что нарисовано
+    const dir = app.getPath('userData');
+    fs.writeFileSync(path.join(dir, `vk-artist-${section}-rendered.html`), scrub(out.html, uid).slice(0, 3 * 1024 * 1024));
+    fs.writeFileSync(path.join(dir, `vk-artist-${section}-net.txt`), scrub(out.bodies.map((b) => `### ${b.short} (${b.body.length})\n${b.body.slice(0, 600)}`).join('\n\n'), uid));
+    log('artist render saved in', dir, '| probe:', out.probe);
+  } catch (e) { /* диагностика не обязательна */ }
+  return out;
+}
+
+// Ответ каталога веб-версии (web.api.vk.ru, batch.call → catalog): рядом с блоками лежат массивы playlists и audios с полями API
+// (owner_id, id, title, access_key, thumb, count, type; у треков artist, duration). Собираем их, где бы они ни лежали.
+function apiCatalog(bodyText, section) {
+  let json;
+  try { json = JSON.parse(String(bodyText).replace(/^<!--/, '')); } catch (e) { return { tiles: [], audios: [], sample: '', audioKeys: '' }; }
+  const tiles = [];
+  const audios = [];
+  let sample = '';
+  let audioKeys = '';
+  const pickImg = (o) => {
+    if (!o || typeof o !== 'object') return '';
+    for (const k of ['photo_600', 'photo_480', 'photo_300', 'photo_270', 'photo_135', 'photo_68']) if (o[k]) return String(o[k]);
+    return '';
+  };
+  const names = (arr) => (Array.isArray(arr) ? arr.map((x) => decode(x && x.name)).filter(Boolean).join(', ') : '');
+  const walk = (x, depth) => {
+    if (!x || typeof x !== 'object' || depth > 12) return;
+    if (Array.isArray(x)) { x.forEach((y) => walk(y, depth + 1)); return; }
+    const hasIds = (typeof x.owner_id === 'number' || /^-?\d+$/.test(String(x.owner_id || ''))) && x.id !== undefined && typeof x.title === 'string';
+    if (hasIds && x.duration !== undefined && (x.artist !== undefined || x.main_artists)) {
+      if (!audioKeys) audioKeys = Object.keys(x).join(',');
+      const al = x.album && typeof x.album === 'object' && x.album.id !== undefined && x.album.owner_id !== undefined ? { owner: String(x.album.owner_id), id: String(x.album.id), key: String(x.album.access_key || '') } : null;
+      audios.push({ owner: String(x.owner_id), id: String(x.id), key: String(x.access_key || ''), artist: decode(x.artist), title: decode(x.title), dur: Number(x.duration) || 0, album: al });
+      return;
+    }
+    // документы пользователя (файлы с компьютера) выглядят похоже, но у них есть ext, size, folder_id: плейлистами их не считаем
+    const isDoc = x.ext !== undefined || x.size !== undefined || x.folder_id !== undefined || x.private_url !== undefined || x.is_unsafe !== undefined;
+    if (hasIds && !isDoc && x.duration === undefined && x.count !== undefined && (x.plays !== undefined || x.followers !== undefined || x.main_artists || x.genres || x.play_button || x.photo || x.thumb)) {
+      if (!sample) sample = Object.keys(x).join(',');
+      const owner = String(x.owner_id);
+      const album = Number(x.type) === 1 || section === 'albums' || /^-2\d{9}$/.test(owner);
+      tiles.push({
+        name: decode(x.title), artist: names(x.main_artists) || decode(x.artist || x.author_name || ''), count: Number(x.count) || 0,
+        art: art(pickImg(x.thumb) || pickImg(x.photo) || x.cover_url || ''), url: `https://vk.com/music/playlist/${owner}_${x.id}`,
+        vkOwner: owner, vkPlaylistId: String(x.id), accessHash: /^[A-Za-z0-9]{0,40}$/.test(String(x.access_key || '')) ? String(x.access_key || '') : '',
+        isAlbum: album, plays: String(x.plays || ''), date: x.create_time || x.update_time ? new Date(1000 * Number(x.create_time || x.update_time)).toISOString().slice(0, 10) : '',
+      });
+      return;
+    }
+    Object.values(x).forEach((y) => walk(y, depth + 1));
+  };
+  walk(json, 0);
+  return { tiles, audios, sample, audioKeys };
+}
+
+const ARTIST_SECTIONS = ['top_audios', 'releases', 'singles', 'albums'];
+async function artistSection(ref, section) {
+  const { uid, host } = readConf();
+  if (!uid) throw new AuthError('Not signed in');
+  if (!ARTIST_SECTIONS.includes(section)) throw new Error('Unknown section');
+  const slug = String((ref && (ref.slug || ref.id)) || '');
+  if (!ARTIST_KEY.test(slug)) throw new Error('Bad artist link');
+  const name = String((ref && ref.name) || '').trim().slice(0, 120);
+  const tracks = [];
+  const seenT = new Set();
+  const tiles = [];
+  const seenP = new Set();
+  const addTiles = (list) => list.forEach((x) => { const k = x && x.vkOwner + '_' + x.vkPlaylistId; if (x && !seenP.has(k)) { seenP.add(k); tiles.push(x); } });
+  const take = async (text) => {
+    const d = artistDocs(text);
+    if (!d.items.length && !d.objs.length) { const e = scanEmbedded(text); d.items.push(...e.items); d.objs.push(...e.objs); }
+    const items = d.items.length ? await hydrateItems(host, d.items) : [];
+    items.map(toTrack).forEach((x) => { if (x && !seenT.has(x.vkId)) { seenT.add(x.vkId); tracks.push(x); } });
+    addTiles(d.objs.map(tileOf).filter(Boolean));
+    if (!tiles.length) addTiles(parseTiles(frameParts(text).join(' ')).map((x) => ({ ...x, isAlbum: section !== 'singles' })));
+    return d;
+  };
+  // Страница исполнителя у VK — приложение на React: в HTML данных нет, их подгружают скрипты. Поэтому открываем её в скрытом окне,
+  // перехватываем ответы сети (в них те же данные, что у поиска) и разбираем ещё и готовую страницу.
+  const apiAudios = [];
+  try {
+    log('artist-section start', section, slug);
+    const r = await renderArtist(host, slug, section, uid);
+    const parts = [];
+    let sampleKeys = '';
+    let audioKeys = '';
+    let best = { n: 0, body: '' };
+    for (const b of r.bodies) {
+      const before = tracks.length + tiles.length;
+      await take(b.body);
+      if (/web\.api\.vk\.(?:ru|com)\/method\//.test(b.short) && /"(?:playlists|audios|blocks)"/.test(b.body)) {   // каталог веб-версии (API)
+        const c = apiCatalog(b.body, section);
+        if (c.tiles.length || c.audios.length) {
+          addTiles(c.tiles);
+          apiAudios.push(...c.audios);
+          sampleKeys = sampleKeys || c.sample;
+          audioKeys = audioKeys || c.audioKeys;
+          if (c.audios.length + c.tiles.length > best.n) best = { n: c.audios.length + c.tiles.length, body: b.body };
+        }
+      }
+      parts.push(`${b.short} ${b.body.length}b +${tracks.length + tiles.length - before}`);
+    }
+    log('artist-section api catalog | playlists:', tiles.length, '| audios:', apiAudios.length, '| playlist keys:', sampleKeys || '-', '| audio keys:', audioKeys || '-');
+    if (best.body) { try { fs.writeFileSync(path.join(app.getPath('userData'), `vk-artist-${section}-catalog.json`), scrub(best.body, uid).slice(0, 3 * 1024 * 1024)); } catch (e) { /* диагностика */ } }
+    if (!tracks.length && !tiles.length) log('artist-section responses:', parts.slice(0, 25).join(' ; ') || '-');
+  } catch (e) {
+    if (e instanceof AuthError) throw e;
+    log('artist-section render failed:', String((e && e.message) || e));
+  }
+  if (!tracks.length && !tiles.length) {   // запасной путь: тот же раздел через al_artist.php
+    try {
+      const part = await artistPart(host, uid, slug, section);
+      await take(part.text);
+      log('artist-section via al_artist', section, '| status:', part.status, '| tracks:', tracks.length, '| tiles:', tiles.length);
+    } catch (e) {
+      if (e instanceof AuthError) throw e;
+      log('artist-section al_artist failed:', String((e && e.message) || e));
+    }
+  }
+  if (section === 'top_audios') {
+    // У треков каталога (API) нет хэшей воспроизведения, поэтому играбельные версии берём из плейлистов: релизы артиста и альбомы,
+    // названные в самих треках (так попадают и участия на чужих альбомах). Порядок как на странице VK, остальное следом.
+    try {
+      // плейлисты берём из всех трёх разделов страницы: релизы, альбомы, синглы и EP (в «релизах» есть не всё)
+      const secs = await Promise.all(['releases', 'albums', 'singles'].map((s) => artistSection({ slug, name }, s).catch((e) => { if (e instanceof AuthError) throw e; return { albums: [] }; })));
+      const rel = { albums: [].concat(...secs.map((s) => s.albums || [])) };
+      const lists = new Map();
+      (rel.albums || []).forEach((p) => lists.set(p.vkOwner + '_' + p.vkPlaylistId, { owner: p.vkOwner, id: p.vkPlaylistId, hash: p.accessHash }));
+      apiAudios.forEach((a) => { if (a.album) { const k = a.album.owner + '_' + a.album.id; if (!lists.has(k)) lists.set(k, { owner: a.album.owner, id: a.album.id, hash: a.album.key }); } });
+      const all = [...lists.values()].slice(0, 80);
+      const byId = new Map();
+      tracks.forEach((x) => byId.set(x.vkId, x));
+      let next = 0;
+      const worker = async () => {
+        while (next < all.length) {
+          const p = all[next++];
+          try { (await collectTracks(host, p.owner, 300, p.id, p.hash)).forEach((x) => { if (!byId.has(x.vkId)) byId.set(x.vkId, x); }); } catch (e) { if (e instanceof AuthError) throw e; }
+        }
+      };
+      await Promise.all([worker(), worker(), worker()]);
+      const wanted = [];
+      const seenW = new Set();
+      apiAudios.forEach((a) => { const k = a.owner + '_' + a.id; if (!seenW.has(k)) { seenW.add(k); wanted.push(k); } });
+      const ordered = [];
+      const used = new Set();
+      wanted.forEach((k) => { const t = byId.get(k); if (t) { ordered.push(t); used.add(k); } });
+      byId.forEach((t, k) => { if (!used.has(k) && (t.albumRef ? lists.has(t.albumRef.owner + '_' + t.albumRef.id) : true)) { ordered.push(t); used.add(k); } });
+      tracks.length = 0;
+      seenT.clear();
+      ordered.forEach((t) => { seenT.add(t.vkId); tracks.push(t); });
+      // то, что есть на странице VK, но не нашлось ни в одном из релизов: ищем по «исполнитель название»
+      const norm = (s) => String(s || '').toLowerCase().replace(/\(.*?\)|\[.*?\]/g, ' ').replace(/[^\p{L}\p{N}]+/gu, '');
+      const haveT = new Set(tracks.map((x) => norm(x.title)));
+      const missing = [];
+      apiAudios.forEach((a) => { const k = norm(a.title); if (k && !haveT.has(k)) { haveT.add(k); missing.push(a); } });
+      const todoM = missing.slice(0, 60);
+      let nextM = 0;
+      const workerM = async () => {
+        while (nextM < todoM.length) {
+          const a = todoM[nextM++];
+          try {
+            const rs = await alAudio(host, { al: '1', act: 'section', claim: '0', is_layer: '0', owner_id: String(uid), section: 'search', q: `${a.artist} ${a.title}`.slice(0, 100) }, 'search');
+            const f = await finishSearch(host, uid, rs, 'artist-fill');
+            const hit = f.tracks.find((x) => norm(x.title) === norm(a.title) && norm(x.artist).includes(norm(a.artist).slice(0, 5)));
+            if (hit && !seenT.has(hit.vkId)) { seenT.add(hit.vkId); tracks.push(hit); }
+          } catch (e) { if (e instanceof AuthError) throw e; }
+        }
+      };
+      await Promise.all([workerM(), workerM(), workerM()]);
+      log('artist-section top_audios search fill | missing:', missing.length, '| searched:', todoM.length, '| tracks now:', tracks.length);
+      log('artist-section top_audios | on page:', wanted.length, '| lists loaded:', all.length, '| matched:', wanted.filter((k) => used.has(k)).length, '| total tracks:', tracks.length);
+    } catch (e) { if (e instanceof AuthError) throw e; log('top_audios assemble failed:', String((e && e.message) || e)); }
+  }
+  const want = name.toLowerCase();
+  const mine = want ? tracks.filter((x) => String(x.artist).toLowerCase().includes(want) || (x.artists || []).some((a) => a.name.toLowerCase() === want)) : tracks;
+  const list = mine.length ? mine : tracks;
+  if (!list.length && !tiles.length) throw new Error('VK returned nothing for this section');
+  const cover = (list.find((x) => x.art) || {}).art || (tiles.find((x) => x.art) || {}).art || '';
+  const top = section === 'top_audios';
+  return { artist: { name: name || (list[0] && list[0].artist) || slug, art: cover, artBig: cover, url: `https://vk.com/artist/${slug}`, followers: 0, trackCount: list.length, city: '', country: '', desc: '' },
+    popular: [], tracks: top ? list : [], albums: top ? [] : tiles, playlists: [] };
 }
 
 // «Открыть на VK»: только адреса самого сайта
@@ -1227,6 +1519,7 @@ function register(ipcMain, winOf) {
   wrap('vk:search', (q) => searchVk(q));
   wrap('vk:playlist-counts', (refs) => playlistCounts(refs));
   wrap('vk:search-more', (cursor) => searchMoreVk(cursor));
+  wrap('vk:artist-section', (ref, section) => artistSection({ id: ref && ref.id, slug: ref && ref.slug, name: ref && ref.name }, String(section || '')));
   wrap('vk:artist', (ref) => artistPage({ id: ref && ref.id, slug: ref && ref.slug, name: ref && ref.name }));
   if (process.env.MP_PROBE) setTimeout(() => runProbe().catch((e) => log('probe failed:', String((e && e.message) || e))), 8000);
   ipcMain.handle('vk:playlist', async (_e, ref) => {

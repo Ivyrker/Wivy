@@ -1,3 +1,4 @@
+@property --qw { syntax: '<length>'; inherits: true; initial-value: 0px; }
 /* Все цвета ниже задаёт renderer.js (applyTheme): тема + цвет оформления + цвет текста.
    Значения здесь — запасные, на случай если скрипт не успел сработать. */
 :root {
@@ -39,6 +40,9 @@
   --a-player: 100%;
   --a-modal: 100%;
   --a-lines: 100%;
+  --a-queue: 100%;
+  --a-scroll: 100%;
+  --a-thumb: 100%;
 
   /* заливки панелей из этих ползунков */
   --canvas-tint: color-mix(in srgb, var(--main) var(--a-canvas), transparent);
@@ -48,6 +52,9 @@
   --controls-tint-hover: color-mix(in srgb, var(--hover) var(--a-controls), transparent);
   --input-tint: color-mix(in srgb, var(--rail) var(--a-controls), transparent);
   --modal-tint: color-mix(in srgb, var(--main) var(--a-modal), transparent);
+  --queue-tint: color-mix(in srgb, var(--main) var(--a-queue), transparent);
+  --thumb-bg: color-mix(in srgb, var(--panel) var(--a-scroll), transparent);
+  --thumb-line: color-mix(in srgb, var(--line-solid) var(--a-scroll), transparent);
   --modal-nav-tint: color-mix(in srgb, var(--panel) var(--a-modal), transparent);
 
   /* слои обоев: готовые картинки собирает renderer.js под размер окна (--wp-bg для фона окна, --wp-glass для панелей) */
@@ -83,17 +90,16 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent-ink)
 
 /* ---------- Каркас ---------- */
 .app {
+  --qpw: clamp(260px, 23vw, 620px);   /* ширина панели очереди = ширине строки поиска = ширине блока трека в плеере */
   height: 100vh;
   display: grid;
-  grid-template-columns: 72px 1fr var(--queue-w, 0px);
+  grid-template-columns: 72px 1fr;
   grid-template-rows: var(--titlebar) 1fr 84px;
   grid-template-areas:
-    "title title  title"
-    "rail  main   queue"
-    "rail  player player";
+    "title title"
+    "rail  main"
+    "rail  player";
 }
-/* ширина панели очереди = ширине строки поиска (+12 px отступа справа) */
-.app.queue-open { --queue-w: calc(clamp(260px, 23vw, 620px) + 12px); }
 
 /* ---------- Свой верхний бар окна (как в Discord) ---------- */
 .titlebar {
@@ -196,6 +202,7 @@ body.modal-open .titlebar { -webkit-app-region: no-drag; } /* чтобы кли�
 
 /* ---------- Основная область ---------- */
 .main {
+  position: relative;
   grid-area: main;
   min-width: 0;
   display: flex;
@@ -216,9 +223,8 @@ body.modal-open .titlebar { -webkit-app-region: no-drag; } /* чтобы кли�
 }
 
 
-.scroller::-webkit-scrollbar,
+.scroller::-webkit-scrollbar { display: none; }
 .modal-body::-webkit-scrollbar { width: 10px; }
-.scroller::-webkit-scrollbar-thumb,
 .modal-body::-webkit-scrollbar-thumb { background: var(--hover); border-radius: var(--r-1); border: 2px solid var(--main); }
 
 .section { margin-bottom: 32px; }
@@ -244,7 +250,25 @@ body.modal-open .titlebar { -webkit-app-region: no-drag; } /* чтобы кли�
 .empty { padding: 48px 0; text-align: center; color: var(--muted); }
 
 /* ---------- Карточки ---------- */
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 18px; }
+.grid {
+  /* карточки в одну строку с горизонтальной прокруткой; строка шире списка на отступ полотна (24 px), и в этой полосе карточки
+     плавно гаснут, поэтому за рамку полотна они не выходят */
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 168px;
+  gap: 18px;
+  margin: 0 -24px;
+  padding: 0 24px 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 24px, #000 calc(100% - 24px), transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0, #000 24px, #000 calc(100% - 24px), transparent 100%);
+}
+.grid::-webkit-scrollbar { display: none; }
+.grid.dragging { cursor: grabbing; }
+.grid.dragging .card { pointer-events: none; }
 
 .card { padding: 12px; border-radius: var(--r-3); background: color-mix(in srgb, var(--panel) var(--a-cards), transparent); cursor: pointer; }
 
@@ -346,10 +370,10 @@ body.modal-open .titlebar { -webkit-app-region: no-drag; } /* чтобы кли�
 .player {
   grid-area: player;
   display: grid;
-  grid-template-columns: auto minmax(120px, 1fr) auto minmax(210px, 300px);
+  grid-template-columns: auto minmax(120px, 1fr) auto var(--qpw);
   align-items: center;
   gap: 22px;
-  padding: 0 20px;
+  padding: 0 12px 0 20px;   /* правый край блока трека вровень с панелью очереди */
   border-top: 1px solid var(--line);
   background-color: color-mix(in srgb, var(--rail) var(--a-player), transparent);
 }
@@ -404,7 +428,7 @@ body.modal-open .titlebar { -webkit-app-region: no-drag; } /* чтобы кли�
 @media (prefers-reduced-motion: reduce) { .vol-tip { transition: none; } }
 
 .np { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.np-cover { width: 52px; height: 52px; border-radius: var(--r-2); background: var(--panel); flex-shrink: 0; }
+.np-cover { width: clamp(48px, calc(var(--qpw) / 5), 64px); height: clamp(48px, calc(var(--qpw) / 5), 64px); border-radius: var(--r-2); background: var(--panel); flex-shrink: 0; }
 .np-meta { flex: 1; min-width: 0; }
 .np-artist { color: var(--muted); font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .np-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -742,7 +766,8 @@ kbd { padding: 2px 8px; border: 1px solid var(--line); border-radius: var(--r-1)
 .titlebar { --tint: color-mix(in srgb, var(--rail) var(--a-title), transparent); }
 .rail     { --tint: color-mix(in srgb, var(--rail) var(--a-rail), transparent); }
 .player   { --tint: color-mix(in srgb, var(--rail) var(--a-player), transparent); }
-.canvas, .queue-box, .tab.active { --tint: var(--canvas-tint); }
+.canvas, .tab.active { --tint: var(--canvas-tint); }
+.queue-box { --tint: var(--queue-tint); }
 .card, .notice, .row, .result { --tint: var(--cards-tint); }
 .card:hover, .result:hover, .track:hover { --tint: var(--cards-tint-hover); }
 .btn, .tab, .plat-chip, .section-title, .font-preview, kbd, .vol-tip, .chip { --tint: var(--controls-tint); }
@@ -854,7 +879,7 @@ svg { filter: var(--ol-icon, none); }
 .main { --tab-l: -9999px; --tab-w: 0px; }   /* положение выбранной вкладки задаёт renderer.js */
 
 /* прокручивается вся область; под полосой прокрутки заранее оставлено место, чтобы отступы слева, справа и снизу были равны (12 px) */
-.scroller { flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; scrollbar-gutter: stable; padding: 0 2px 12px 12px; }
+.scroller { flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; scrollbar-width: none; padding: 0 12px 12px; margin-right: var(--qw); }
 .canvas { position: relative; padding: 24px; border-radius: var(--r-3); }
 .canvas > :last-child, .section:last-child { margin-bottom: 0; }   /* внизу списка тот же отступ 24 px, что и от карточек до края */
 
@@ -931,7 +956,7 @@ svg { filter: var(--ol-icon, none); }
 .modal { border: 1px solid var(--line); }
 .modal-nav { border-right: 1px solid var(--line); }
 .choice.sel { outline: 2px solid var(--accent-ink); outline-offset: -2px; border-color: transparent; }
-.scroller::-webkit-scrollbar-thumb, .modal-body::-webkit-scrollbar-thumb { background: var(--panel); border: 1px solid var(--line); }
+.modal-body::-webkit-scrollbar-thumb { background: var(--thumb-bg); border: 1px solid var(--thumb-line); }
 
 /* кнопка настроек: прозрачная, без границ; отделена чертой, как «Все треки»; область нажатия прежняя (48×48) */
 .rail-btn.settings { outline: none; }
@@ -1108,19 +1133,26 @@ button.chip:hover { color: var(--text); }
 
 
 /* =====================================================================
-   Очередь воспроизведения: панель справа от основного полотна
+   Очередь воспроизведения
    ===================================================================== */
-/* колонка очереди сдвигает основное полотно влево; верх панели вровень с верхом полотна, низ уходит под плеер, как у полотна */
+/* Панель лежит внутри .main (overflow: hidden), поэтому при выезде снизу она обрезается верхним краем нижнего плеера
+   и не просвечивает под ним, даже если панели прозрачные. Полоса поиска остаётся над панелью. */
+.main.q-open { --qw: calc(var(--qpw) + 12px); }
+.main.q-anim { transition: --qw .36s cubic-bezier(.3, .8, .3, 1); }
 .queue {
-  grid-area: queue;
+  position: absolute;
+  z-index: 2;
+  top: 56px;
+  right: 12px;
+  bottom: 0;
+  width: var(--qpw);
   display: flex;
   flex-direction: column;
-  min-width: 0;
-  min-height: 0;
-  padding: 56px 12px 0 0;
-  background-color: color-mix(in srgb, var(--main) var(--a-main), transparent);
+  transform: translateY(102%);
+  visibility: hidden;
+  transition: transform .32s cubic-bezier(.3, .8, .3, 1), visibility 0s .32s;
 }
-.queue[hidden] { display: none; }
+.main.q-open .queue { transform: none; visibility: visible; transition: transform .32s cubic-bezier(.3, .8, .3, 1), visibility 0s; }
 .queue-box {
   position: relative;
   flex: 1;
@@ -1134,14 +1166,26 @@ button.chip:hover { color: var(--text); }
 }
 .queue-head { display: flex; align-items: center; gap: 8px; padding: 14px 8px 10px 16px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
 .queue-heading { flex: 1; min-width: 0; }
-.queue-title { font-size: var(--fs-h3); font-weight: 700; }
+.queue-titlerow { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.queue-title { font-size: var(--fs-h3); font-weight: 700; flex-shrink: 0; }
 .queue-sub { color: var(--muted); font-size: var(--fs-sm); min-height: 1.2em; }
 .queue-head .icon-btn { width: 30px; height: 30px; flex-shrink: 0; }
-.queue-head .icon-btn svg { width: 16px; height: 16px; }
+.queue-head .icon-btn svg { width: 18px; height: 18px; }
+
+/* платформы всех треков справа от заголовка; длинная подпись прокручивается как бегущая строка */
+.q-plats { flex: 1; min-width: 0; overflow: hidden; display: flex; align-items: center; }
+.q-plats:empty { display: none; }
+.q-plats-in { display: flex; align-items: center; gap: 10px; white-space: nowrap; flex-shrink: 0; }
+.q-plats-in > * { flex-shrink: 0; }
+.q-plats.scroll .q-plats-in { animation: q-marquee var(--mq-dur, 8s) linear infinite; padding-right: 24px; }
+.q-plats.scroll:hover .q-plats-in { animation-play-state: paused; }
+@keyframes q-marquee { to { transform: translateX(var(--mq-shift, -50%)); } }
+.q-plat { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: var(--fs-xs); }
+.q-plat .dot { width: 7px; height: 7px; }
 
 .queue-list { position: relative; flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; padding: 8px 8px 12px; }
 .queue-list::-webkit-scrollbar { width: 10px; }
-.queue-list::-webkit-scrollbar-thumb { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-1); }
+.queue-list::-webkit-scrollbar-thumb { background: var(--thumb-bg); border: 1px solid var(--thumb-line); border-radius: var(--r-1); }
 
 .q-item {
   display: grid;
@@ -1167,4 +1211,72 @@ button.chip:hover { color: var(--text); }
 .q-item.over-bottom { box-shadow: inset 0 -2px 0 var(--accent); }
 .q-item:hover .mini .ico, .q-item.playing .mini .ico { opacity: 1; }
 .q-item .t-title, .q-item .t-artist { overflow: hidden; }
+.q-item .t-title { display: flex; align-items: center; gap: 6px; }
+.q-item .t-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.q-item .q-mark { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; color: var(--muted); font-size: var(--fs-xs); }
+.q-item .q-mark .dot { width: 6px; height: 6px; }
 .icon-btn.on svg { filter: none; }
+
+/* Свой ползунок главной панели: лежит внутри рамки полотна, как полоса прокрутки очереди */
+.vscroll {
+  position: absolute;
+  z-index: 6;   /* выше очереди, рядов карточек и их затемнения */
+  right: calc(var(--qw) + 12px + 3px);
+  top: 66px;
+  bottom: 22px;
+  width: 10px;
+  display: none;
+}
+.vscroll.on { display: block; }
+.vthumb { position: absolute; top: 0; left: 0; width: 100%; min-height: 28px; background: linear-gradient(var(--panel), var(--panel)), var(--base); border: 1px solid var(--line); border-radius: var(--r-1); opacity: var(--a-thumb); cursor: default; }
+.vthumb:hover, .vthumb.drag { background: linear-gradient(var(--hover), var(--hover)), var(--base); }
+
+/* вкладки «Playlists» и «Following» показывают только карточки: там они остаются обычной сеткой без прокрутки */
+.grid.wrap {
+  display: grid;
+  grid-auto-flow: row;
+  grid-auto-columns: auto;
+  grid-template-columns: repeat(auto-fill, 168px);
+  justify-content: start;
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
+/* стрелки рядов карточек: без фона, с тёмным затемнением края на всю высоту ряда; видны при наведении, если есть куда листать */
+.row-wrap { position: relative; }
+.row-arrow {
+  position: absolute;
+  top: 0;
+  bottom: 6px;
+  z-index: 2;
+  width: 76px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .18s;
+  /* затемнение гаснет и сверху, и снизу, а не обрезается ровной линией */
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 22%, #000 78%, transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 22%, #000 78%, transparent 100%);
+}
+.row-arrow.l { left: -24px; background: linear-gradient(to right, color-mix(in srgb, var(--bgc, var(--rail)) 92%, transparent), transparent); justify-items: start; padding-left: 14px; }
+.row-arrow.r { right: -24px; background: linear-gradient(to left, color-mix(in srgb, var(--bgc, var(--rail)) 92%, transparent), transparent); justify-items: end; padding-right: 14px; }
+.row-arrow svg { width: 26px; height: 26px; filter: drop-shadow(0 1px 3px color-mix(in srgb, var(--bgc, var(--rail)) 70%, transparent)); }
+.row-wrap:hover .row-arrow.on { opacity: 1; pointer-events: auto; }
+.row-arrow.on:hover svg { transform: scale(1.12); }
+
+/* пока панель очереди выезжает, содержимое полотна компонуется отдельно: карточки не перестраиваются на каждом кадре */
+
+/* длинные списки: строки вне экрана не участвуют в компоновке, поэтому ширина полотна меняется плавно, даже когда треков сотни */
+.track { content-visibility: auto; contain-intrinsic-size: auto 56px; }
+.card { content-visibility: auto; contain-intrinsic-size: auto 168px; }
+.main.q-anim .scroller { contain: layout style; }

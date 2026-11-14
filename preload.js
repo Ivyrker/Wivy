@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld('api', {
     searchMore: (cursor) => ipcRenderer.invoke('sc:search-more', cursor), // следующая порция выдачи по курсору из ответа search
     openLink: (url) => ipcRenderer.invoke('sc:open-link', url),
     like: (track, on) => ipcRenderer.invoke('sc:like', { scId: track && track.scId }, !!on), // поставить или снять лайк в аккаунте
+    likePlaylist: (pl, on) => ipcRenderer.invoke('sc:like-playlist', { scId: pl && pl.scId }, !!on), // лайк плейлиста или альбома
   },
 
 
@@ -47,6 +48,7 @@ contextBridge.exposeInMainWorld('api', {
     playlistCounts: (refs) => ipcRenderer.invoke('vk:playlist-counts', Array.isArray(refs) ? refs.map((r) => ({ owner: r.owner, id: r.id, hash: r.hash })) : []), // число треков плейлистов списком
     searchMore: (cursor) => ipcRenderer.invoke('vk:search-more', cursor && { sectionId: cursor.sectionId, nextFrom: cursor.nextFrom, startFrom: cursor.startFrom, blockId: cursor.blockId }),
     artist: (ref) => ipcRenderer.invoke('vk:artist', { id: ref && ref.id, slug: ref && ref.slug, name: ref && ref.name }), // номер и имя передаются строками
+    artistSection: (ref, section) => ipcRenderer.invoke('vk:artist-section', { id: ref && ref.id, slug: ref && ref.slug, name: ref && ref.name }, String(section || '')), // top_audios | releases | singles | albums
     openLink: (url) => ipcRenderer.invoke('vk:open-link', url),
     like: (track, on) => ipcRenderer.invoke('vk:like', { vkId: track && track.vkId, hash: track && track.hash, trackCode: track && track.trackCode }, !!on), // добавить трек в аудиозаписи или убрать
   },

@@ -41,21 +41,26 @@
       <div class="scroller">
         <div class="canvas" id="content"></div>
       </div>
-    </main>
+      <!-- свой ползунок прокрутки: лежит внутри рамки полотна -->
+      <div class="vscroll" id="vscroll" aria-hidden="true"><div class="vthumb" id="vthumb"></div></div>
 
-    <!-- Панель текущей очереди: открывается справа от основного полотна -->
-    <aside class="queue" id="queuePanel" hidden>
-      <div class="queue-box">
-        <div class="queue-head">
-          <div class="queue-heading">
-            <div class="queue-title" id="queueTitle"></div>
-            <div class="queue-sub" id="queueSub"></div>
+      <!-- Панель текущей очереди: выезжает снизу, обрезается верхним краем нижнего плеера -->
+      <aside class="queue" id="queuePanel" aria-hidden="true">
+        <div class="queue-box">
+          <div class="queue-head">
+            <div class="queue-heading">
+              <div class="queue-titlerow">
+                <span class="queue-title" id="queueTitle"></span>
+                <div class="q-plats" id="queuePlats"></div>
+              </div>
+              <div class="queue-sub" id="queueSub"></div>
+            </div>
+            <button class="icon-btn" id="queueClose" aria-label="Close"></button>
           </div>
-          <button class="icon-btn" id="queueClose" aria-label="Close"></button>
+          <div class="queue-list" id="queueList"></div>
         </div>
-        <div class="queue-list" id="queueList"></div>
-      </div>
-    </aside>
+      </aside>
+    </main>
 
     <!-- Нижний плеер в стиле SoundCloud -->
     <footer class="player">
@@ -69,7 +74,7 @@
 
       <div class="progress">
         <span id="curTime">0:00</span>
-        <input type="range" id="seek" min="0" max="100" value="0">
+        <input type="range" id="seek" min="0" max="100" step="any" value="0">
         <span id="durTime">0:00</span>
       </div>
 

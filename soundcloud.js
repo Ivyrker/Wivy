@@ -386,9 +386,9 @@ async function userPage(get, ref) {
   const safe = safeCollect(get, warnings);
   const [top, latest, albums, lists] = await Promise.all([
     safe(`/users/${u.id}/toptracks?limit=10`, 10),
-    safe(`/users/${u.id}/tracks?limit=50`, 50),
-    safe(`/users/${u.id}/albums?limit=30`, 30),
-    safe(`/users/${u.id}/playlists_without_albums?limit=30`, 30),
+    safe(`/users/${u.id}/tracks?limit=200`, 1000),
+    safe(`/users/${u.id}/albums?limit=100`, 300),
+    safe(`/users/${u.id}/playlists_without_albums?limit=100`, 300),
   ]);
   const lists_ = (l) => uniq(l.map(toPlaylist), (p) => p.scId);
   return { artist: userFull(u), popular: tracksOf(top), tracks: tracksOf(latest), albums: lists_(albums), playlists: lists_(lists), warnings };
@@ -516,9 +516,9 @@ async function pageRequest(want) {
   return win.webContents.executeJavaScript(`(${inPageRequest.toString()})(${JSON.stringify(want)})`);
 }
 
-async function writeLike(token, clientId, userId, trackId, on) {
+async function writeLike(token, clientId, userId, trackId, on, kind = 'track') {
   const method = on ? 'PUT' : 'DELETE';
-  const path = `/users/${userId}/track_likes/${trackId}`;
+  const path = `/users/${userId}/${kind === 'playlist' ? 'playlist_likes' : 'track_likes'}/${trackId}`;
   const ok = (s) => s >= 200 && s < 300;
   let status = 0;
   let body = '';
@@ -543,7 +543,7 @@ async function writeLike(token, clientId, userId, trackId, on) {
   throw new Error('HTTP ' + r.status);
 }
 
-async function setLike(trackId, on) {
+async function setLike(trackId, on, kind = 'track') {
   const id = Math.floor(Number(trackId));
   if (!(id > 0)) return { ok: false, error: 'Bad track id' };
   try {
@@ -551,7 +551,7 @@ async function setLike(trackId, on) {
     if (!token || readConf().mode !== 'web') throw new AuthError('Signed out');
     const clientId = await webClientId();
     if (!meIdCache) meIdCache = (await webGetter(token, clientId)('/me')).id;
-    await writeLike(token, clientId, meIdCache, id, on);
+    await writeLike(token, clientId, meIdCache, id, on, kind);
     return { ok: true };
   } catch (e) {
     return { ok: false, auth: e instanceof AuthError, error: String((e && e.message) || e) };
@@ -588,6 +588,7 @@ function register(ipcMain, winOf) {
   ipcMain.handle('sc:library', () => library());
   ipcMain.handle('sc:stream', (_e, id) => stream(id));
   ipcMain.handle('sc:like', (_e, track, on) => setLike(track && track.scId, !!on));
+  ipcMain.handle('sc:like-playlist', (_e, pl, on) => setLike(pl && pl.scId, !!on, 'playlist'));
 
   // страницы: трек, исполнитель, плейлист или альбом (по номеру или по ссылке на soundcloud.com)
   const page = (channel, fn) => ipcMain.handle(channel, (_e, ref) => {

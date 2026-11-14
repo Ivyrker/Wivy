@@ -36,6 +36,7 @@
     Object.values(WP_POS).forEach((x) => tr(x, 1));
     OPACITY.forEach((x) => tr(x, 1));
     Object.values(SOURCE_MODES).forEach((x) => { tr(x, 'name'); tr(x, 'hint'); });
+    Object.values(SOURCE_SHOW).forEach((x) => { tr(x, 'name'); tr(x, 'hint'); });
     NAV.forEach((g) => { if (g.title) tr(g, 'title'); g.items.forEach((s) => { tr(s, 'name'); (s.subs || []).forEach((x) => tr(x, 'name')); }); });
     DEFS.forEach((d) => { tr(d, 'title'); tr(d, 'desc'); });
     staticTexts.forEach(([el, a, ru]) => el.setAttribute(a, L(ru)));
@@ -164,7 +165,7 @@
   const OPACITY = [
     ['aTitle', 'Title bar'], ['aRail', 'Side panel'], ['aMain', 'Window background and top bar'],
     ['aCanvas', 'Main canvas'], ['aCards', 'Cards and rows'], ['aControls', 'Buttons, fields and headings'],
-    ['aPlayer', 'Bottom player'], ['aModal', 'Settings window'], ['aLines', 'Lines and borders'],
+    ['aPlayer', 'Bottom player'], ['aQueue', 'Queue window'], ['aModal', 'Settings window'], ['aScroll', 'Scrollbars'], ['aThumb', 'Main scrollbar'], ['aLines', 'Lines and borders'],
   ];
 
   const SOURCE_MODES = {
@@ -172,14 +173,20 @@
     title: { name: 'Icon by the title', hint: 'A small icon before the title.' },
     label: { name: 'Label on the right',    hint: 'The platform name on the right.' },
   };
+  // где показывать отметки платформы (внешний вид задаёт SOURCE_MODES)
+  const SOURCE_SHOW = {
+    auto:   { name: 'Where several platforms are', hint: 'Marks appear only where tracks from two or more platforms are mixed: in "All tracks", the queue and the player.' },
+    always: { name: 'Always',                      hint: 'Marks are shown everywhere, even when only one platform is in sight.' },
+    off:    { name: 'Hidden',                      hint: 'No platform marks anywhere.' },
+  };
 
   /* ---------- Настройки (сохраняются между запусками) ---------- */
   const STORE_KEY = 'music-player-settings';
   // tint — цвет оформления (null = без цвета); textColor — 'auto' | 'white' | 'black' | id оттенка
   const DEFAULTS = {
-    theme: 'dark', tint: null, sat: 80, textColor: 'auto', textSat: 70, sourceMode: 'icon',
+    theme: 'dark', tint: null, sat: 80, textColor: 'auto', textSat: 70, sourceMode: 'icon', sourceShow: 'auto',
     font: 'auto', fontSize: 14, pattern: 'dots', patternAlpha: 70, lang: 'en', uiScale: 100,
-    aTitle: 100, aRail: 100, aMain: 100, aCanvas: 100, aCards: 100, aControls: 100, aPlayer: 100, aModal: 100, aLines: 100,
+    aTitle: 100, aRail: 100, aMain: 100, aCanvas: 100, aCards: 100, aControls: 100, aPlayer: 100, aQueue: 100, aModal: 100, aScroll: 100, aThumb: 100, aLines: 100,
     glassBlur: 10, wpFit: 'cover', wpPos: 'c', wpBlur: 0, textOutline: 50,
     bgColor: 'auto', bgSat: 60, outlineColor: 'auto', outlineIcons: true, outlineStyle: 'soft',
     notifyTrack: false, notifyUnfocused: true, notifySilent: false,
@@ -189,7 +196,7 @@
   const BOOLS = ['notifyTrack', 'notifyUnfocused', 'notifySilent', 'autoplay', 'rememberVolume', 'outlineIcons', 'autoSync', 'hideLocked'];
   // числовые настройки и их допустимые границы
   const NUMS = { aTitle: [0, 100], aRail: [0, 100], aMain: [0, 100], aCanvas: [0, 100], aCards: [0, 100],
-                 aPlayer: [0, 100], aModal: [0, 100], aControls: [0, 100], aLines: [0, 100], glassBlur: [0, 24], wpBlur: [0, 40], textOutline: [0, 100], bgSat: [0, 100], uiScale: [75, 150], syncEvery: [1, 240] };
+                 aPlayer: [0, 100], aQueue: [0, 100], aScroll: [0, 100], aThumb: [0, 100], aModal: [0, 100], aControls: [0, 100], aLines: [0, 100], glassBlur: [0, 24], wpBlur: [0, 40], textOutline: [0, 100], bgSat: [0, 100], uiScale: [75, 150], syncEvery: [1, 240] };
   const settings = { ...DEFAULTS };
   try {
     const saved = JSON.parse(localStorage.getItem(STORE_KEY)) || {};
@@ -200,6 +207,8 @@
     if (saved.textColor === 'auto' || TEXT_FIXED[saved.textColor] || TINTS.some((p) => p.id === saved.textColor)) settings.textColor = saved.textColor;
     if (pct(saved.textSat)) settings.textSat = Math.round(saved.textSat);
     if (SOURCE_MODES[saved.sourceMode]) settings.sourceMode = saved.sourceMode;
+    if (SOURCE_SHOW[saved.sourceShow]) settings.sourceShow = saved.sourceShow;
+    else if (saved.sourceMode === 'off') settings.sourceShow = 'off';   // прежнее значение «скрыто»
     if (PATTERNS[saved.pattern]) settings.pattern = saved.pattern;
     if (pct(saved.patternAlpha)) settings.patternAlpha = Math.round(saved.patternAlpha);
     if (typeof saved.font === 'string' && saved.font.length < 80) settings.font = saved.font;
@@ -353,6 +362,47 @@
   const SNAP = ['scId', 'vkId', 'hash', 'trackCode', 'title', 'artist', 'artistId', 'artistUrl', 'dur', 'art', 'url'];
   const snapshot = (t) => Object.fromEntries(SNAP.filter((f) => t[f] !== undefined).map((f) => [f, t[f]]).concat([['source', t.source]]));
   const likeApi = (src) => { const s = SVCS[src]; const api = s ? s.api() : null; return api && api.like ? api : null; };
+
+  // Лайки плейлистов и альбомов: хранятся в приложении; у SoundCloud ещё и отправляются в аккаунт
+  const PL_LIKES_KEY = 'music-player-pl-likes';
+  let plLikes = {};   // ключ -> { on, at, pl }
+  try { plLikes = JSON.parse(localStorage.getItem(PL_LIKES_KEY)) || {}; } catch (e) { plLikes = {}; }
+  const savePlLikes = () => { try { localStorage.setItem(PL_LIKES_KEY, JSON.stringify(plLikes)); } catch (e) { /* ничего */ } };
+  const plKey = (p) => `${p.source}:${p.scId || p.url || `${p.vkOwner || ''}_${p.vkPlaylistId || ''}`}`;
+  const PL_SNAP = ['source', 'scId', 'url', 'name', 'art', 'artist', 'author', 'artistId', 'artistUrl', 'isAlbum', 'count', 'date', 'vkOwner', 'vkPlaylistId', 'accessHash'];
+  const plSnapshot = (p) => Object.fromEntries(PL_SNAP.filter((f) => p[f] !== undefined).map((f) => [f, p[f]]));
+  const isPlLiked = (p) => {
+    if (!p) return false;
+    const v = plLikes[plKey(p)];
+    if (v) return !!v.on;
+    const d = DATA[p.source];
+    return !!(d && d.playlists.some((x) => plKey(x) === plKey(p)));
+  };
+  // вкладка «Playlists»: библиотека платформы плюс плейлисты, которым вы поставили лайк в приложении
+  function playlistsWithLiked(data) {
+    const extra = Object.values(plLikes)
+      .filter((v) => v.on && v.pl && (state.platform === 'all' || v.pl.source === state.platform) && !data.playlists.some((x) => plKey(x) === plKey(v.pl)))
+      .sort((a, b) => b.at - a.at).map((v) => v.pl);
+    return data.playlists.concat(extra);
+  }
+  function togglePlLike(p) {
+    const on = !isPlLiked(p);
+    const k = plKey(p);
+    const had = plLikes[k];
+    plLikes[k] = { on, at: Date.now(), pl: plSnapshot(p) };
+    savePlLikes();
+    const s = SVCS[p.source];
+    const api = s && DATA[p.source] && DATA[p.source].connected ? s.api() : null;
+    if (api && api.likePlaylist && p.scId) {
+      Promise.resolve(api.likePlaylist({ scId: p.scId }, on)).then((res) => {
+        if (res && res.ok) return;
+        if (had) plLikes[k] = had; else delete plLikes[k];   // аккаунт не принял: возвращаем прежнее
+        savePlLikes();
+        s.error = L('Could not sync the like with {0}: {1}', platform(s.id).name, scErrorText(res && res.error));
+        renderContent();
+      }).catch(() => {});
+    }
+  }
 
   function toggleLike(t) {
     const on = !isLiked(t);
@@ -716,7 +766,16 @@
 
   /* ---------- Содержимое ---------- */
   // отметка платформы показывается только в «Все треки»
-  const markMode = () => (state.platform === 'all' ? settings.sourceMode : null);
+  // есть ли в очереди треки минимум с двух платформ
+  const queueMultiPlat = () => {
+    const s = new Set();
+    for (const t of player.queue) { if (t.source) s.add(t.source); (t.alt || []).forEach((a) => { if (a.source) s.add(a.source); }); }
+    return s.size >= 2;
+  };
+  // показывать ли отметки платформы в очереди и плеере: «auto» — только при нескольких платформах, «always» — всегда
+  const showMarks = () => settings.sourceShow === 'always' || (settings.sourceShow === 'auto' && queueMultiPlat());
+  // на карточках и в списках: «auto» — только во «Все треки», «always» — на любой вкладке
+  const markMode = () => (settings.sourceShow === 'off' ? null : settings.sourceShow === 'always' || state.platform === 'all' ? settings.sourceMode : null);
   // Отметка платформы у карточек любого вида (треки, плейлисты, альбомы, исполнители): общая для всех и берётся из настройки sourceMode.
   // Показывается только во «Все треки»; на вкладке одной платформы отметок нет.
   function srcMarks(sourceId) {
@@ -742,12 +801,12 @@
     ? L('This track is not available in your region.')
     : L('This track is protected (DRM) and cannot be played here. Open it on SoundCloud.'));
 
-  const trackRow = (t) => {
+  const trackRow = (t, key) => {
     const src = platform(t.source);
     const mode = markMode();
     const cls = mode === 'icon' ? 'with-ico' : mode === 'label' ? 'with-src' : '';
     return `
-      <div class="track ${cls} ${t.lock ? 'locked' : ''} ${current() && current().id === t.id ? 'playing' : ''}" data-track="${t.id}">
+      <div class="track ${cls} ${t.lock ? 'locked' : ''} ${current() && current().id === t.id ? 'playing' : ''}" data-track="${t.id}" data-list="${key || ''}">
         ${mode === 'icon' ? srcIcon(src, '') : ''}
         <div class="mini" style="background:${esc(coverBg(t.title + t.artist, t.art))}"><span class="ico">${current() && current().id === t.id && player.playing ? I.pause : I.play}</span></div>
         <div class="t-meta">
@@ -774,7 +833,9 @@
       </div>`;
   };
 
-  const trackList = (list) => list.map(trackRow).join('');
+  // отдельные очереди на странице артиста: «Popular» и «All tracks» играют каждая свой список, не смешиваясь
+  const trackLists = {};
+  const trackList = (list, key, full) => { if (key) trackLists[key] = full || list; return list.map((t) => trackRow(t, key)).join(''); };
 
   // плашка вместо содержимого: платформа не подключена, идёт вход или загрузка.
   // У платформы с входом (SoundCloud, VK) своя кнопка, в «Все треки» кнопки обеих, у остальных пока «Скоро».
@@ -838,7 +899,7 @@
       const recentTitle = state.platform === 'vk' ? 'Recently added' : 'Recently played';
       el.innerHTML = `
         ${SVCS[state.platform] ? accountBar(SVCS[state.platform]) : ''}
-        ${recent.length ? `<div class="section"><div class="section-title">${L(recentTitle)}</div><div class="grid">${recent.map(trackCard).join('')}</div></div>` : ''}
+        ${recent.length ? `<div class="section"><div class="section-title">${L(recentTitle)}</div>${cardRow(recent.map(trackCard).join(''))}</div>` : ''}
         ${more.length ? `<div class="section"><div class="section-title">${L('Recommended')}</div>${trackList(more)}</div>` : ''}
         ${artists.length ? sectionHtml(L(state.platform === 'vk' ? 'Artists in your library' : 'Artists'), grid(artists.map(userCard).join(''))) : ''}
         ${lists.length ? sectionHtml(L('Playlists'), grid(lists.map(playlistCard).join(''))) : ''}
@@ -853,14 +914,14 @@
       el.innerHTML = `
         <div class="section">
           <div class="section-title">${L('Playlists')}</div>
-          ${data.playlists.length ? `<div class="grid">${data.playlists.map(playlistCard).join('')}</div>` : emptyHtml()}
+          ${(() => { const all = playlistsWithLiked(data); return all.length ? `<div class="grid wrap">${all.map(playlistCard).join('')}</div>` : emptyHtml(); })()}
         </div>`;
     } else {
       visibleTracks = [];
       el.innerHTML = `
         <div class="section">
           <div class="section-title">${L('Following')}</div>
-          ${data.following.length ? `<div class="grid">${data.following.map(userCard).join('')}</div>`
+          ${data.following.length ? `<div class="grid wrap">${data.following.map(userCard).join('')}</div>`
             : state.platform === 'vk' ? `<div class="notice"><p><b>${L('Followed artists')}</b>${esc(L('VK Music does not give the app your followed artists yet. Artists from your library are shown on the Home page.'))}</p></div>` : emptyHtml()}
         </div>`;
     }
@@ -1050,11 +1111,13 @@
     { id: 'ap-outline', section: 'appearance', sub: 'wall', title: 'Text and icon outline',
       desc: 'A thin outline so text and icons do not get lost on busy wallpapers: strength, color and whether it applies to icons. 0 turns the outline off.' },
     { id: 'ap-opacity', section: 'appearance', sub: 'wall', title: 'Element transparency',
-      desc: 'A separate slider for every element: title bar, side panel, window background (the top bar shares it), main canvas, cards and rows, buttons, fields and headings, player, settings window and lines. Elements are independent: a card can be transparent even if the canvas is not. 100% is opaque (the default), 0% is fully transparent.' },
+      desc: 'A separate slider for every element: title bar, side panel, window background (the top bar shares it), main canvas, cards and rows, buttons, fields and headings, player, queue window, settings window, scrollbars and lines. Elements are independent: a card can be transparent even if the canvas is not. 100% is opaque (the default), 0% is fully transparent.' },
     { id: 'ap-pattern', section: 'appearance', sub: 'panels', title: 'Panel pattern',
       desc: 'A background pattern on the side panel, title bar and player: dots, grid, crosses or none. The slider sets how visible it is.' },
     { id: 'ap-marks', section: 'appearance', sub: 'panels', title: 'Track source',
-      desc: 'How to mark the platform on tracks in "All tracks" and in the player at the bottom.' },
+      desc: 'How to mark the platform on tracks in "All tracks", in the queue and in the player at the bottom.' },
+    { id: 'ap-marks-show', section: 'appearance', sub: 'panels', title: 'Show the platform',
+      desc: 'Where the platform marks appear: only where several platforms are mixed, always, or nowhere.' },
     { id: 'ap-scale', section: 'appearance', sub: 'font', title: 'Interface scale',
       desc: 'Enlarges or shrinks the whole interface: text, icons and spacing. Applied when you release the slider. The font size above changes only the text.' },
     { id: 'lang-select', section: 'language', sub: null, title: 'Interface language',
@@ -1109,6 +1172,14 @@
                   style="left:calc(9px + (100% - 18px) * ${i / (THEME_ORDER.length - 1)})">${THEMES[k].name}</button>`).join('')}
         </div>
       </div>`;
+  }
+
+  function showChoice(key) {
+    return `
+      <button class="choice ${settings.sourceShow === key ? 'sel' : ''}" data-source-show="${key}">
+        <b>${SOURCE_SHOW[key].name}</b>
+        <small>${SOURCE_SHOW[key].hint}</small>
+      </button>`;
   }
 
   function choice(mode) {
@@ -1395,7 +1466,8 @@
                            + blockRow('ap-opacity', opacityControls()))
               + wrap('font', blockRow('ap-font', fontControls()) + blockRow('ap-fontsize', fontSizeControls()) + blockRow('ap-scale', scaleControls()))
               + wrap('panels', blockRow('ap-pattern', patternControls())
-                             + blockRow('ap-marks', `<div class="choices">${['icon', 'title', 'label'].map(choice).join('')}</div>`));
+                             + blockRow('ap-marks', `<div class="choices">${['icon', 'title', 'label'].map(choice).join('')}</div>`)
+                             + blockRow('ap-marks-show', `<div class="choices">${Object.keys(SOURCE_SHOW).map(showChoice).join('')}</div>`));
         break;
       case 'language':
         inner = blockRow('lang-select', languageControls()) + blockRow('lang-custom', customLangControls());
@@ -1665,11 +1737,33 @@
     input.style.setProperty('--fill', `${(Number(input.value) / max) * 100}%`);
   }
 
+  // положение бегунка берётся прямо из звука (с долями секунды), а не из целых секунд
+  let seekDrag = false;
+  const smoothTime = () => {
+    if (seekDrag || !player.playing || player.loading) return player.elapsed;
+    const t = audio.currentTime;
+    return Number.isFinite(t) ? t : player.elapsed;
+  };
+  let seekRaf = 0;
+  function seekLoop() {
+    seekRaf = 0;
+    if (!player.playing || player.loading) return;
+    if (!seekDrag) {
+      const t = smoothTime();
+      $('seek').value = t;
+      setFill($('seek'));
+      const sec = Math.floor(t);
+      if (sec !== player.elapsed) { player.elapsed = sec; $('curTime').textContent = fmt(sec); }
+    }
+    seekRaf = requestAnimationFrame(seekLoop);
+  }
+  const startSeekLoop = () => { if (!seekRaf) seekRaf = requestAnimationFrame(seekLoop); };
+
   function updateProgress() {
     const t = current();
     const dur = t ? t.dur : 0;
     $('seek').max = dur || 100;
-    $('seek').value = player.elapsed;
+    $('seek').value = smoothTime();
     $('curTime').textContent = fmt(player.elapsed);
     $('durTime').textContent = fmt(dur);
     setFill($('seek'));
@@ -1693,7 +1787,7 @@
     const t = current();
     // отметка платформы у играющего трека: так же, как на карточках (значок на обложке, у названия или подпись)
     const src = t ? platform(t.source) : null;
-    const mode = settings.sourceMode;
+    const mode = showMarks() ? settings.sourceMode : null;
     $('npCover').style.background = t ? coverBg(t.title + t.artist, t.art) : '';
     $('npCover').innerHTML = src && mode === 'icon'
       ? `<span class="cover-ico np-ico" style="${srcVars(src)}" title="${esc(src.name)}">${I[src.icon]}</span>` : '';
@@ -1726,9 +1820,34 @@
   /* ---------- Очередь воспроизведения ---------- */
   // player.queue — отдельная копия списка, с которого начали играть (playTrack, playList делают slice()), поэтому перестановки
   // здесь не затрагивают сами списки на страницах (плейлисты, альбомы, лайки), а запуск другого списка заменяет очередь целиком.
-  const queueUi = { open: false, sig: '', drag: -1, over: -1, dragging: false };
+  const queueUi = { open: false, sig: '', timer: 0, drag: -1, over: -1, dragging: false };
 
-  const queueSig = () => `${player.qgen}|${player.index}|${player.playing ? 1 : 0}|${player.queue.reduce((n, t) => n + (t.lock ? 1 : 0), 0)}`;
+  const queueSig = () => `${player.qgen}|${player.index}|${player.playing ? 1 : 0}|${player.queue.reduce((n, t) => n + (t.lock ? 1 : 0), 0)}|${settings.sourceMode}|${settings.sourceShow}|${lang.code}`;
+
+  // все платформы трека: основная и те, где он найден ещё (t.alt)
+  const trackSources = (t) => {
+    const ids = [t.source].concat((t.alt || []).map((a) => a.source));
+    return ids.filter((id, i) => id && ids.indexOf(id) === i);
+  };
+  const platMark = (id, mode) => {
+    const src = platform(id);
+    return mode === 'label'
+      ? `<span class="q-plat" style="${srcVars(src)}"><i class="dot"></i>${esc(src.name)}</span>`
+      : srcIcon(src, 'sm');
+  };
+  // платформа(ы) трека на его строке в очереди; вид по настройке «Track source», при «Hidden» ничего не показываем
+  // платформы в очереди: по настройке «Track source» (только при нескольких платформах, всегда или скрыто)
+  let queueMulti = false;
+  const queueSources = () => {
+    const seen = [];
+    player.queue.forEach((t) => trackSources(t).forEach((id) => { if (seen.indexOf(id) < 0) seen.push(id); }));
+    return seen;
+  };
+  const queueMarks = (t) => {
+    const mode = settings.sourceMode;
+    if (!queueMulti) return '';
+    return `<span class="q-mark">${trackSources(t).map((id) => platMark(id, mode)).join('')}</span>`;
+  };
 
   function queueRow(t, i) {
     const cur = i === player.index;
@@ -1737,12 +1856,41 @@
         <span class="q-grip" title="${esc(L('Drag to reorder'))}">${I.grip}</span>
         <div class="mini" style="background:${esc(coverBg(t.title + t.artist, t.art))}"><span class="ico">${cur && player.playing ? I.pause : I.play}</span></div>
         <div class="t-meta">
-          <div class="t-title"><span class="t-text">${esc(t.title)}</span>${lockIcon(t)}</div>
-          <div class="t-artist">${esc(t.artist)}</div>
+          <div class="t-title">${titleLink(t)}${queueMarks(t)}${lockIcon(t)}</div>
+          <div class="t-artist">${artistLink(t)}</div>
         </div>
         <div class="t-dur">${fmt(t.dur)}</div>
       </div>`;
   }
+
+  // платформы всех треков справа от слова «Очередь»; текстовую подпись, которая не влезает, прокручиваем как бегущую строку
+  function renderQueuePlats() {
+    const box = $('queuePlats');
+    const mode = settings.sourceMode;
+    const seen = queueMulti ? queueSources() : [];
+    box.classList.remove('scroll');
+    box.style.removeProperty('--mq-shift');
+    box.style.removeProperty('--mq-dur');
+    box.innerHTML = seen.length ? `<div class="q-plats-in">${seen.map((id) => platMark(id, mode)).join('')}</div>` : '';
+    fitQueuePlats();
+  }
+  function fitQueuePlats() {
+    const box = $('queuePlats');
+    const first = box.firstElementChild;
+    if (!first) return;
+    while (box.children.length > 1) box.removeChild(box.lastChild);   // снимаем копию, если уже была
+    box.classList.remove('scroll');
+    if (settings.sourceMode !== 'label' || first.scrollWidth <= box.clientWidth + 1) return;
+    box.classList.add('scroll');
+    const w = first.offsetWidth;   // с отступом справа, который добавляет .scroll
+    box.appendChild(first.cloneNode(true));
+    box.style.setProperty('--mq-shift', `-${w}px`);
+    box.style.setProperty('--mq-dur', `${Math.max(6, w / 35).toFixed(1)}s`);
+  }
+
+  const queueTotal = () => player.queue.reduce((s, t) => s + (t.dur || 0), 0);
+  const queueSubText = () => (player.queue.length
+    ? [L('{0} tr.', player.queue.length), queueTotal() ? fmtLong(queueTotal()) : ''].filter(Boolean).join(' · ') : '');
 
   function renderQueue(force, reveal) {
     if (!queueUi.open) return;
@@ -1752,30 +1900,40 @@
     const prevIndex = Number(queueUi.sig.split('|')[1]);
     const top = list.scrollTop;
     queueUi.sig = sig;
-    const total = player.queue.reduce((s, t) => s + (t.dur || 0), 0);
     $('queueTitle').textContent = L('Queue');
-    $('queueSub').textContent = player.queue.length
-      ? [L('{0} tr.', player.queue.length), total ? fmtLong(total) : ''].filter(Boolean).join(' · ') : '';
+    $('queueSub').textContent = queueSubText();
     $('queueClose').title = L('Close');
     $('queueClose').setAttribute('aria-label', L('Close'));
     if (queueUi.dragging) return;   // во время перетаскивания список не пересоздаём
+    queueMulti = showMarks();
+    renderQueuePlats();
     list.innerHTML = player.queue.length ? player.queue.map(queueRow).join('')
       : `<div class="empty small">${esc(L('The queue is empty. Start playing a track.'))}</div>`;
     list.scrollTop = top;
-    // при смене трека или открытии панели играющий трек подводим в поле зрения
+    // при смене трека или открытии панели играющий трек подводим в поле зрения; прокручиваем только сам список
     if (reveal || (player.index >= 0 && player.index !== prevIndex)) {
       const el = list.querySelector('.q-item.playing');
-      if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest' });
+      if (el) {
+        if (el.offsetTop < list.scrollTop + 8) list.scrollTop = Math.max(0, el.offsetTop - 8);
+        else if (el.offsetTop + el.offsetHeight > list.scrollTop + list.clientHeight - 12) list.scrollTop = el.offsetTop + el.offsetHeight - list.clientHeight + 12;
+      }
     }
   }
 
   function setQueueOpen(on) {
     queueUi.open = !!on;
-    $('queuePanel').hidden = !queueUi.open;
-    document.querySelector('.app').classList.toggle('queue-open', queueUi.open);
+    const main = document.querySelector('.main');
+    $('queuePanel').setAttribute('aria-hidden', queueUi.open ? 'false' : 'true');
     $('queueBtn').classList.toggle('on', queueUi.open);
+    // тяжёлую работу (список очереди) делаем до начала анимации, чтобы первый кадр не подвисал
     if (queueUi.open) renderQueue(true, true);
-    schedulePosition();   // основное полотно сузилось: вырез под вкладкой нужно пересчитать
+    clearTimeout(queueUi.timer);
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      main.classList.add('q-anim');   // анимация ширины полотна только на время открытия/закрытия
+      main.classList.toggle('q-open', queueUi.open);
+      queueUi.timer = setTimeout(() => { main.classList.remove('q-anim'); schedulePosition(); }, 440);
+    }));
+    schedulePosition();
   }
 
   // перенос трека: from — его номер, to — номер места «перед которым» вставить (0…n), считая до удаления
@@ -1798,31 +1956,31 @@
   function queueDropTarget(e) {
     const it = e.target.closest ? e.target.closest('.q-item') : null;
     if (!it) return null;
-    const r = it.getBoundingClientRect();
+    const rc = it.getBoundingClientRect();
     const i = Number(it.dataset.qi);
-    return { el: it, to: e.clientY > r.top + r.height / 2 ? i + 1 : i };
+    return { el: it, to: e.clientY > rc.top + rc.height / 2 ? i + 1 : i };
   }
-  function clearQueueMarks() {
-    $('queueList').querySelectorAll('.over-top, .over-bottom, .dragging').forEach((el) => el.classList.remove('over-top', 'over-bottom', 'dragging'));
+  const clearQueueMarks = () => document.querySelectorAll('.q-item.over-top, .q-item.over-bottom, .q-item.dragging').forEach((el) => el.classList.remove('over-top', 'over-bottom', 'dragging'));
+
+  // клик по строке очереди: название и исполнитель открывают свои страницы, остальное играет трек из очереди (сама очередь не меняется)
+  function queueClick(e) {
+    const it = e.target.closest('.q-item');
+    if (!it) return false;
+    const open = e.target.closest('[data-open]');
+    if (open) {
+      openEntity(open.dataset.open, { src: open.dataset.src, id: open.dataset.id, url: open.dataset.url, name: open.dataset.name });
+      return true;
+    }
+    const i = Number(it.dataset.qi);
+    if (i === player.index) { if (!locked(current())) toggle(); else playAt(i, false); return true; }
+    player.advance = false;   // прямой клик: закрытый трек объяснит, почему он не играет
+    playAt(i);
+    return true;
   }
 
-  function initQueue() {
-    const list = $('queueList');
-    $('queueBtn').innerHTML = I.queue;
-    $('queueClose').innerHTML = I.close;
-    $('queueBtn').addEventListener('click', () => setQueueOpen(!queueUi.open));
-    $('queueClose').addEventListener('click', () => setQueueOpen(false));
-
-    list.addEventListener('click', (e) => {
-      const it = e.target.closest('.q-item');
-      if (!it) return;
-      const i = Number(it.dataset.qi);
-      if (i === player.index) { if (!locked(current())) toggle(); else playAt(i, false); return; }
-      player.advance = false;   // прямой клик: закрытый трек объяснит, почему он не играет
-      playAt(i);
-    });
-
-    list.addEventListener('dragstart', (e) => {
+  // перетаскивание работает и в окне очереди, и на вкладке «Queue»
+  function bindQueueDnD(root) {
+    root.addEventListener('dragstart', (e) => {
       const it = e.target.closest ? e.target.closest('.q-item') : null;
       if (!it) return;
       queueUi.drag = Number(it.dataset.qi);
@@ -1831,20 +1989,21 @@
       try { e.dataTransfer.setData('text/plain', String(queueUi.drag)); } catch (err) { /* ничего */ }
       setTimeout(() => it.classList.add('dragging'), 0);
     });
-    list.addEventListener('dragover', (e) => {
+    root.addEventListener('dragover', (e) => {
       if (queueUi.drag < 0) return;
       e.preventDefault();
       e.dataTransfer.dropEffect = 'move';
-      const r = list.getBoundingClientRect();   // у краёв список сам прокручивается
-      if (e.clientY < r.top + 40) list.scrollTop -= 14;
-      else if (e.clientY > r.bottom - 40) list.scrollTop += 14;
+      const sc = root === $('content') ? scrollerEl() : root;   // у краёв область сама прокручивается
+      const rc = sc.getBoundingClientRect();
+      if (e.clientY < rc.top + 40) sc.scrollTop -= 14;
+      else if (e.clientY > rc.bottom - 40) sc.scrollTop += 14;
       const t = queueDropTarget(e);
-      list.querySelectorAll('.over-top, .over-bottom').forEach((el) => el.classList.remove('over-top', 'over-bottom'));
+      clearQueueMarks();
       if (!t) { queueUi.over = -1; return; }
       queueUi.over = t.to;
       t.el.classList.add(t.to > Number(t.el.dataset.qi) ? 'over-bottom' : 'over-top');
     });
-    list.addEventListener('drop', (e) => {
+    root.addEventListener('drop', (e) => {
       if (queueUi.drag < 0) return;
       e.preventDefault();
       const t = queueDropTarget(e);
@@ -1855,7 +2014,7 @@
       clearQueueMarks();
       if (to >= 0) moveInQueue(from, to); else renderQueue(true);
     });
-    list.addEventListener('dragend', () => {
+    root.addEventListener('dragend', () => {
       queueUi.drag = -1;
       queueUi.over = -1;
       const was = queueUi.dragging;
@@ -1863,6 +2022,17 @@
       clearQueueMarks();
       if (was) renderQueue(true);   // отмена: список мог измениться, пока шло перетаскивание
     });
+  }
+
+  function initQueue() {
+    const list = $('queueList');
+    $('queueBtn').innerHTML = I.queue;
+    $('queueClose').innerHTML = I.chevronDown;
+    window.addEventListener('resize', () => { if (queueUi.open) fitQueuePlats(); });
+    $('queueBtn').addEventListener('click', () => setQueueOpen(!queueUi.open));
+    $('queueClose').addEventListener('click', () => setQueueOpen(false));
+    list.addEventListener('click', queueClick);
+    bindQueueDnD(list);
   }
 
   // ближайший трек, который можно играть: идём от start в сторону dir, по кругу
@@ -1953,8 +2123,9 @@
     next();
   }
 
-  function playTrack(id) {
-    if (current() && current().id === id) return locked(current()) ? undefined : toggle();
+  function playTrack(id, listKey = '') {
+    if (current() && current().id === id && (player.listKey || '') === listKey) return locked(current()) ? undefined : toggle();
+    player.listKey = listKey;
     player.advance = false;
     player.queue = visibleTracks.slice();
     player.qgen++;
@@ -2067,6 +2238,7 @@
     const t = current();
     if (t && Number.isFinite(audio.duration) && audio.duration > 0) { t.dur = Math.round(audio.duration); updateProgress(); }
   });
+  audio.addEventListener('playing', startSeekLoop);
   audio.addEventListener('ended', () => onTrackEnd());
   audio.addEventListener('error', () => {
     if (!audio.getAttribute('src')) return;
@@ -2239,7 +2411,7 @@
   // (soundcloud.js). Чтобы подключить другую платформу, достаточно добавить её в entityApi с теми же методами.
   const pages = new Map();     // ключ страницы -> { status: 'loading' | 'ok' | 'error', data, error, at }
   let pendingPlay = '';        // страница, которую надо сразу запустить, как только она загрузится (кнопка ▶ на карточке)
-  const viewKey = (v) => (v ? `${v.src}:${v.kind}:${v.id || v.url || v.name}` : '');   // у исполнителей VK нет номера: страница ищется по имени
+  const viewKey = (v) => (v ? `${v.src}:${v.kind}:${v.id || v.url || v.name}${v.sec ? ':' + v.sec : ''}` : '');   // у исполнителей VK нет номера: страница ищется по имени
   // VK не отдаёт открытых запросов за страницей трека или исполнителя, поэтому они собираются из вашей библиотеки VK;
   // плейлист загружается настоящим запросом (vk.js). Для новой платформы достаточно вернуть здесь такой же набор track / user / playlist.
   const vkLibTracks = () => { const seen = new Set(); return [...DATA.vk.liked, ...DATA.vk.recent].filter((x) => !seen.has(x.vkId) && seen.add(x.vkId)); };
@@ -2258,6 +2430,12 @@
       // сначала настоящая страница исполнителя (по номеру из адреса или по имени); если VK ничего не дал, страница собирается из вашей библиотеки
       const key = ((/artist\/([A-Za-z0-9_.-]{1,64})/.exec(ref.url || '')) || [])[1] || '';
       const api = vk.api();
+      if (ref.sec) {   // раздел страницы исполнителя: все треки, релизы, синглы, альбомы
+        if (!key || !api || !api.artistSection) return { ok: false, error: L('This page is not available for this platform yet.') };
+        const rs = await api.artistSection({ slug: key, name }, ref.sec);
+        if (rs && rs.ok) regVkPlaylists([...rs.data.albums, ...rs.data.playlists]);
+        return rs;
+      }
       if ((key || name) && api && api.artist) {
         let r;
         try { r = await api.artist({ id: key, name }); } catch (e) { r = null; }
@@ -2268,7 +2446,7 @@
       const tracks = vkLibTracks().filter((x) => String(x.artist).toLowerCase().trim() === want || artistParts(x.artist).includes(want));
       if (!tracks.length) return { ok: false, error: L('No tracks by this artist in your VK library.') };
       const art = (tracks.find((x) => x.art) || {}).art || '';
-      return { ok: true, data: { artist: { name, art, artBig: art, url: `https://vk.com/search?c%5Bsection%5D=audio&q=${encodeURIComponent(name)}`, followers: 0, trackCount: tracks.length, city: '', country: '', desc: '' },
+      return { ok: true, data: { artist: { name, art, artBig: art, url: key ? `https://vk.com/artist/${key}` : `https://vk.com/search?c%5Bsection%5D=audio&q=${encodeURIComponent(name)}`, followers: 0, trackCount: tracks.length, city: '', country: '', desc: '' },
         popular: [], tracks, albums: [], playlists: [] } };
     },
     playlist: async (ref) => {
@@ -2288,6 +2466,7 @@
     },
   };
   const entityApi = (src) => (src === 'soundcloud' ? scApi() : src === 'vk' ? vkPages : null);
+  const VK_SECTIONS = { top_audios: 'All tracks', releases: 'Releases', singles: 'Singles and EPs', albums: 'Albums' };
   const KIND_LABEL = { track: 'Track', artist: 'Artist', playlist: 'Playlist' };
 
   function viewTitle() {
@@ -2319,9 +2498,9 @@
     pages.set(key, { status: 'loading' });
     if (pages.size > 60) pages.delete(pages.keys().next().value);
     let r;
-    try { r = await call({ id: v.id, url: v.url, name: v.name }); } catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
+    try { r = await call({ id: v.id, url: v.url, name: v.name, sec: v.sec }); } catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
     if (r && r.ok) {
-      try { pages.set(key, { status: 'ok', data: buildPage(v.kind, r.data, v.src), at: Date.now() }); }
+      try { const data = buildPage(v.kind, r.data, v.src); if (v.sec) { data.sec = v.sec; data.title = `${data.title} · ${L(VK_SECTIONS[v.sec])}`; } pages.set(key, { status: 'ok', data, at: Date.now() }); }
       catch (e) { pages.set(key, { status: 'error', error: String((e && e.message) || e) }); }
     } else {
       pages.set(key, { status: 'error', error: String((r && r.error) || 'Unknown error') });
@@ -2402,7 +2581,11 @@
   const aboutHtml = (desc) => (desc ? sectionHtml(L('About'), `<div class="about">${esc(desc)}</div>`) : '');
   const actBtn = (act, icon, text, primary) => `<button class="btn ic ${primary ? 'primary' : ''}" data-act="${act}">${icon}<span>${esc(text)}</span></button>`;
   const moreBtn = (sect, shown, total) => (total > shown ? `<div class="more-row"><button class="btn" data-act="more" data-sect="${sect}">${esc(L('Show more'))}</button></div>` : '');
-  const grid = (cards) => `<div class="grid">${cards}</div>`;
+  // ряд карточек с горизонтальной прокруткой; по бокам при наведении стрелки (две чёрточки), появляющиеся, когда есть куда листать
+  const cardRow = (cards) => `<div class="row-wrap"><div class="grid">${cards}</div>`
+    + `<button class="row-arrow l" data-dir="-1" aria-label="${esc(L('Back'))}" tabindex="-1">${I.chevronLeft}</button>`
+    + `<button class="row-arrow r" data-dir="1" aria-label="${esc(L('Forward'))}" tabindex="-1">${I.chevronRight}</button></div>`;
+  const grid = cardRow;
 
   function heroHtml(h) {
     return `
@@ -2458,7 +2641,43 @@
       + (d.related.length ? sectionHtml(L(d.relatedTitle || 'Related tracks'), trackList(d.related)) : '');
   }
 
+  // у исполнителя VK кнопки разделов его страницы: все треки, релизы, синглы и EP, альбомы
+  const vkSlug = (a) => ((/\/artist\/([A-Za-z0-9_.-]{1,64})/.exec(a.url || '')) || [])[1] || '';
+  function vkSectionButtons(d) {
+    if (d.artist.source !== 'vk' || !vkSlug(d.artist)) return '';
+    return `<div class="btn-row sec-links">${Object.keys(VK_SECTIONS).map((s) =>
+      `<button class="btn ${d.sec === s ? 'primary' : ''}" data-act="vksec" data-sec="${s}">${esc(L(VK_SECTIONS[s]))}</button>`).join('')}</div>`;
+  }
+  // страница раздела (/artist/имя/top_audios и т.д.): либо полный список треков, либо плитки альбомов и синглов
+  function artistSectionHtml(d) {
+    const a = d.artist;
+    visibleTracks = d.tracks;
+    const body = d.tracks.length ? trackList(d.tracks, 'all')
+      : d.albums.length ? grid(d.albums.map(playlistCard).join('')) : emptyHtml();
+    return heroHtml({
+      kind: L('Artist'), cover: a.artBig || a.art, round: true, title: a.name,
+      sub: esc(L(VK_SECTIONS[d.sec])),
+      stats: d.tracks.length ? L('{0} tr.', d.tracks.length) : '',
+      actions: (d.tracks.length ? playShuffle(true) : '') + `<button class="btn ic" data-act="vkback">${I.person}<span>${esc(L('Artist page'))}</span></button>`,
+    }) + vkSectionButtons(d) + sectionHtml(L(VK_SECTIONS[d.sec]), body);
+  }
+
   function artistPageHtml(d) {
+    if (d.sec) return artistSectionHtml(d);
+    const a = d.artist;
+    visibleTracks = d.popular.length ? d.popular : d.tracks;   // «Играть» на странице артиста берёт популярные, «All tracks» — свою очередь
+    const popN = state.expanded.has('popular') ? 10 : 5;
+    const latN = state.expanded.has('latest') ? d.tracks.length : 10;
+    return heroHtml({
+      kind: L('Artist'), cover: a.artBig || a.art, round: true, title: a.name,
+      sub: esc(L(VK_SECTIONS[d.sec])),
+      stats: d.tracks.length ? L('{0} tr.', d.tracks.length) : '',
+      actions: (d.tracks.length ? playShuffle(true) : '') + `<button class="btn ic" data-act="vkback">${I.person}<span>${esc(L('Artist page'))}</span></button>`,
+    }) + vkSectionButtons(d) + sectionHtml(L(VK_SECTIONS[d.sec]), body);
+  }
+
+  function artistPageHtml(d) {
+    if (d.sec) return artistSectionHtml(d);
     const a = d.artist;
     const seen = new Set();
     visibleTracks = [...d.popular, ...d.tracks].filter((x) => !seen.has(x.id) && seen.add(x.id));
@@ -2470,11 +2689,12 @@
       stats: [a.followers ? L('{0} followers', fmtNum(a.followers)) : '', a.trackCount ? L('{0} tr.', a.trackCount) : ''].filter(Boolean).join(' · '),
       actions: playShuffle(true) + extBtn(a.source),
     })
+      + vkSectionButtons(d)
       + aboutHtml(a.desc)
-      + (d.popular.length ? sectionHtml(L('Popular'), trackList(d.popular.slice(0, popN)) + moreBtn('popular', popN, d.popular.length)) : '')
-      + (d.tracks.length ? sectionHtml(L('Tracks'), trackList(d.tracks.slice(0, latN)) + moreBtn('latest', latN, d.tracks.length)) : '')
+      + (d.popular.length ? sectionHtml(L('Popular'), trackList(d.popular.slice(0, popN), 'pop', d.popular) + moreBtn('popular', popN, d.popular.length)) : '')
       + (d.albums.length ? sectionHtml(L('Albums'), grid(d.albums.map(playlistCard).join(''))) : '')
       + (d.playlists.length ? sectionHtml(L('Playlists'), grid(d.playlists.map(playlistCard).join(''))) : '')
+      + (d.tracks.length ? sectionHtml(L('All tracks'), trackList(d.tracks.slice(0, latN), 'all', d.tracks) + moreBtn('latest', latN, d.tracks.length)) : '')
       + (d.popular.length || d.tracks.length || d.albums.length || d.playlists.length ? '' : emptyHtml());
   }
 
@@ -2486,7 +2706,7 @@
       kind: L(p.isAlbum ? 'Album' : 'Playlist'), cover: p.artBig || p.art, title: p.name,
       sub: [artistLink(p), p.isAlbum && yearOf(p.date)].filter(Boolean).join(' · '),
       stats: [L('{0} tr.', d.tracks.length || p.count), total ? fmtLong(total) : '', d.tracks.some(locked) ? L('{0} unavailable', d.tracks.filter(locked).length) : ''].filter(Boolean).join(' · '),
-      actions: playShuffle(true) + extBtn(p.source),
+      actions: playShuffle(true) + actBtn('likepl', isPlLiked(p) ? I.heartFill : I.heart, L(isPlLiked(p) ? 'Liked' : 'Like')) + extBtn(p.source),
     })
       + aboutHtml(p.desc)
       + sectionHtml(L('Tracks'), d.tracks.length ? trackList(d.tracks) : emptyHtml());
@@ -2801,7 +3021,7 @@
     const url = ref.url || '';
     const name = ref.name || '';
     if (!id && !url && !name) return;
-    const view = { kind, src: ref.src || 'soundcloud', id, url, name };
+    const view = { kind, src: ref.src || 'soundcloud', id, url, name, sec: ref.sec || '' };
     const key = viewKey(view);
     pendingPlay = opts && opts.autoplay ? key : '';
     // страница открывается в платформе самого трека: цвета и вкладки соответствуют сервису, а не той вкладке, где вы искали
@@ -2848,6 +3068,11 @@
     const d = pg && pg.status === 'ok' ? pg.data : null;
     if (a === 'play') playAll(false);
     else if (a === 'shuffle') playAll(true);
+    else if ((a === 'vksec' || a === 'vkback') && d && d.artist) {
+      const slug = vkSlug(d.artist);
+      if (slug) openEntity('artist', { src: 'vk', url: `https://vk.com/artist/${slug}`, name: d.artist.name, sec: a === 'vksec' ? btn.dataset.sec : '' });
+    }
+    else if (a === 'likepl' && d && d.pl) { togglePlLike(d.pl); renderContent(); }
     else if (a === 'more') { state.expanded.add(btn.dataset.sect); renderContent(); }
     else if (a === 'retry') { pages.delete(viewKey(state.view)); renderContent(); }
     else if (a === 'like' && d && d.track) {
@@ -2889,6 +3114,7 @@
   });
 
   $('content').addEventListener('click', (e) => {
+    if (queueClick(e)) return;
     const scBtn = e.target.closest('[data-sc]');
     if (scBtn) return scAction(scBtn.dataset.sc, scBtn.dataset.svc);
     const sf = e.target.closest('[data-sf]');
@@ -2907,7 +3133,13 @@
       return openEntity(open.dataset.open, ref);
     }
     const row = e.target.closest('[data-track]');
-    if (row) playTrack(Number(row.dataset.track));
+    if (row) {
+      const prev = visibleTracks;
+      const own = row.dataset.list && trackLists[row.dataset.list];
+      if (own) visibleTracks = own;   // очередь берётся из того списка, в котором нажали трек
+      playTrack(Number(row.dataset.track), row.dataset.list || '');
+      visibleTracks = prev;
+    }
   });
 
   // название, обложка и исполнитель в нижнем плеере открывают страницу играющего трека
@@ -3008,6 +3240,7 @@
     const tintBtn = t.closest('[data-tint]');
     const textBtn = t.closest('[data-text]');
     const modeBtn = t.closest('[data-source-mode]');
+    const showBtn = t.closest('[data-source-show]');
     const patBtn = t.closest('[data-pattern]');
     const bgBtn = t.closest('[data-bg]');
     const olBtn = t.closest('[data-outline]');
@@ -3015,6 +3248,7 @@
     if (tintBtn) settings.tint = tintBtn.dataset.tint === 'none' ? null : tintBtn.dataset.tint;
     else if (textBtn) settings.textColor = textBtn.dataset.text;
     else if (modeBtn) settings.sourceMode = modeBtn.dataset.sourceMode;
+    else if (showBtn) settings.sourceShow = showBtn.dataset.sourceShow;
     else if (patBtn) settings.pattern = patBtn.dataset.pattern;
     else if (bgBtn) settings.bgColor = bgBtn.dataset.bg;
     else if (olBtn) settings.outlineColor = olBtn.dataset.outline;
@@ -3102,9 +3336,11 @@
     if (state.view || curTab() === 'liked') renderContent();   // список лайков и страница трека сразу показывают изменение
   });
 
+  $('seek').addEventListener('pointerdown', () => { seekDrag = true; });
+  window.addEventListener('pointerup', () => { if (seekDrag) { seekDrag = false; startSeekLoop(); } });
   $('seek').addEventListener('input', (e) => {
-    player.elapsed = Number(e.target.value);
-    audio.currentTime = player.elapsed;
+    player.elapsed = Math.floor(Number(e.target.value));
+    audio.currentTime = Number(e.target.value);
     updateProgress();
   });
   // всплывашка с процентами над бегунком: показывается, пока меняем громкость, и гаснет через секунду
@@ -3189,6 +3425,130 @@
   }
 
   /* ---------- Старт ---------- */
+  // Свой ползунок главной панели: лежит внутри рамки полотна (как полоса прокрутки очереди), родной скрыт
+  function initScrollbar() {
+    const sc = document.querySelector('.scroller');
+    const bar = $('vscroll');
+    const th = $('vthumb');
+    const metrics = () => {
+      const max = sc.scrollHeight - sc.clientHeight;
+      const h = bar.clientHeight;
+      const size = Math.min(h, Math.max(28, h * sc.clientHeight / Math.max(1, sc.scrollHeight)));
+      return { max, h, size };
+    };
+    const update = () => {
+      const { max, h, size } = metrics();
+      if (max <= 1) { bar.classList.remove('on'); return; }
+      bar.classList.add('on');
+      const hh = bar.clientHeight || h;
+      th.style.height = size + 'px';
+      th.style.transform = `translateY(${(hh - size) * (sc.scrollTop / max)}px)`;
+    };
+    sc.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update);
+    if (window.ResizeObserver) {
+      const ro = new ResizeObserver(update);
+      ro.observe(sc);
+      ro.observe($('content'));
+    }
+    let drag = null;
+    th.addEventListener('pointerdown', (e) => {
+      const { max, h, size } = metrics();
+      drag = { y: e.clientY, top: sc.scrollTop, k: max / Math.max(1, h - size) };
+      th.classList.add('drag');
+      th.setPointerCapture(e.pointerId);
+      e.preventDefault();
+    });
+    th.addEventListener('pointermove', (e) => { if (drag) sc.scrollTop = drag.top + (e.clientY - drag.y) * drag.k; });
+    const end = () => { drag = null; th.classList.remove('drag'); };
+    th.addEventListener('pointerup', end);
+    th.addEventListener('pointercancel', end);
+    bar.addEventListener('pointerdown', (e) => {   // щелчок по дорожке: страница вверх/вниз
+      if (e.target !== bar) return;
+      const r = th.getBoundingClientRect();
+      sc.scrollTop += (e.clientY < r.top ? -1 : 1) * sc.clientHeight * 0.9;
+    });
+    update();
+  }
+  initScrollbar();
+
+  // Стрелки рядов и прокрутка колесом: колесо листает ряд под курсором, а на краю ряда отдаёт прокрутку странице
+  (() => {
+    const content = $('content');
+    const upd = (wrap) => {
+      const g = wrap.querySelector('.grid');
+      const max = g.scrollWidth - g.clientWidth;
+      wrap.querySelector('.row-arrow.l').classList.toggle('on', g.scrollLeft > 2);
+      wrap.querySelector('.row-arrow.r').classList.toggle('on', g.scrollLeft < max - 2);
+    };
+    const updAll = () => content.querySelectorAll('.row-wrap').forEach(upd);
+    // плавная прокрутка: ряд догоняет цель с замедлением к концу
+    const glide = (g, delta) => {
+      const max = g.scrollWidth - g.clientWidth;
+      g._t = Math.max(0, Math.min(max, (g._t === undefined ? g.scrollLeft : g._t) + delta));
+      if (g._raf) return;
+      const step = () => {
+        const d = g._t - g.scrollLeft;
+        if (Math.abs(d) < 1) { g.scrollLeft = g._t; g._raf = 0; g._t = undefined; return; }
+        g.scrollLeft += Math.sign(d) * Math.max(1, Math.abs(d) * 0.16);
+        g._raf = requestAnimationFrame(step);
+      };
+      g._raf = requestAnimationFrame(step);
+    };
+    window.glideRow = glide;
+    content.addEventListener('scroll', (e) => { const w = e.target.closest && e.target.closest('.row-wrap'); if (w) upd(w); }, true);
+    new MutationObserver(() => requestAnimationFrame(updAll)).observe(content, { childList: true });
+    window.addEventListener('resize', updAll);
+    content.addEventListener('click', (e) => {
+      const b = e.target.closest && e.target.closest('.row-arrow');
+      if (!b) return;
+      e.stopPropagation();
+      const g = b.parentElement.querySelector('.grid');
+      g.scrollBy({ left: Number(b.dataset.dir) * Math.max(200, g.clientWidth * 0.8), behavior: 'smooth' });
+    }, true);
+    content.addEventListener('wheel', (e) => {
+      const g = e.target.closest && e.target.closest('.row-wrap .grid');
+      if (!g || e.ctrlKey) return;
+      const max = g.scrollWidth - g.clientWidth;
+      if (max <= 2) return;
+      const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+      if ((delta > 0 && g.scrollLeft < max - 1) || (delta < 0 && g.scrollLeft > 1)) { e.preventDefault(); glide(g, delta); }
+    }, { passive: false });
+    updAll();
+  })();
+
+  // Ряды карточек: прокрутка колесом с Shift, жестом на тачпаде и перетаскиванием мышью
+  (() => {
+    const content = $('content');
+    let d = null;
+    content.addEventListener('pointerdown', (e) => {
+      const g = e.target.closest ? e.target.closest('.grid') : null;
+      if (!g || e.pointerType !== 'mouse' || e.button !== 0 || g.scrollWidth <= g.clientWidth) return;
+      d = { g, x: e.clientX, left: g.scrollLeft, moved: false };
+    });
+    window.addEventListener('pointermove', (e) => {
+      if (!d) return;
+      const dx = e.clientX - d.x;
+      if (!d.moved && Math.abs(dx) > 6) { d.moved = true; d.g.classList.add('dragging'); }
+      if (d.moved) {
+        d.g.scrollLeft = d.left - dx;
+        const now = performance.now();
+        if (d.t && now > d.t) d.v = 0.8 * (d.v || 0) + 0.2 * ((d.px - e.clientX) / (now - d.t));   // скорость, px/мс
+        d.px = e.clientX;
+        d.t = now;
+      }
+    });
+    window.addEventListener('pointerup', () => {
+      if (!d) return;
+      const g = d.g;
+      const moved = d.moved;
+      const v = d.v || 0;
+      d = null;
+      if (moved && Math.abs(v) > 0.2 && window.glideRow) window.glideRow(g, v * 260);   // инерция после отпускания
+      g.classList.remove('dragging');
+      if (moved) { const stop = (ev) => { ev.stopPropagation(); ev.preventDefault(); }; content.addEventListener('click', stop, { capture: true, once: true }); setTimeout(() => content.removeEventListener('click', stop, true), 0); }
+    });
+  })();
   document.querySelector('.scroller').addEventListener('scroll', (e) => {
     document.querySelector('.main').classList.toggle('scrolled', e.target.scrollTop > 2);
   });
