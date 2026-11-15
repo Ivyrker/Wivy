@@ -1,7 +1,7 @@
 // Подключение SoundCloud (основной процесс): вход через окно сайта soundcloud.com внутри приложения.
 // Приложение берёт сессию этого окна и ходит в тот же api-v2, что и сайт (способ неофициальный).
 // Токены в окно приложения не попадают: наружу отдаются готовые списки треков и ссылки на звук.
-const { app, BrowserWindow, session, net, shell } = require('electron');
+const { app, BrowserWindow, session, net, shell, safeStorage } = require('electron');
 const fs = require('fs');
 const path = require('path');
 
@@ -125,15 +125,24 @@ async function fetchLibrary(get) {
     safe('following', `/users/${me.id}/followings?limit=50`, LIMITS.following),
   ]);
   const tracks = (list) => uniq(list.map(trackOf), (t) => t.scId);
+  // момент лайка (у обёртки элемента) нужен, чтобы «Все» сортировались по дате добавления; у своих плейлистов это дата изменения
+  const stamp = (fn, own) => (it) => {
+    const x = fn(it);
+    if (!x) return x;
+    const raw = own ? (it && (it.last_modified || it.created_at)) : (it && it.created_at);
+    const at = Date.parse(raw || '');
+    if (at) x.addedAt = at;
+    return x;
+  };
   return {
     me: { name: String(me.username || me.full_name || ''), avatar: art(me.avatar_url), url: String(me.permalink_url || '') },
-    v: 4,                                          // версия формата списков (в кэше интерфейса)
+    v: 5,                                          // версия формата списков (в кэше интерфейса)
     likedComplete: liked.length < LIMITS.liked,    // false: список обрезан лимитом, и отсутствие трека в нём ничего не доказывает
     updated: Date.now(),
     recent: tracks(recent),
     recommended: tracks(recommended),
-    liked: tracks(liked),
-    playlists: uniq([...own, ...likedPl].map(toPlaylist), (p) => p.url || p.name).slice(0, LIMITS.playlists),
+    liked: uniq(liked.map(stamp(trackOf)), (t) => t.scId),
+    playlists: uniq([...own.map(stamp(toPlaylist, true)), ...likedPl.map(stamp(toPlaylist))], (p) => p.url || p.name).sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0)).slice(0, LIMITS.playlists),
     following: uniq(following.map(toUser), (u) => u.url || u.name),
     warnings,
   };
@@ -143,7 +152,11 @@ async function fetchLibrary(get) {
 let clientIdCache = '';
 async function webClientId() {
   if (clientIdCache) return clientIdCache;
-  const html = await (await net.fetch('https://soundcloud.com/', { headers: { 'User-Agent': chromeUA() } })).text();
+  let html = '';
+  for (let i = 0; i < 3 && !html; i++) {   // сеть при запуске бывает ещё не готова
+    try { html = await (await net.fetch('https://soundcloud.com/', { headers: { 'User-Agent': chromeUA() } })).text(); }
+    catch (e) { if (i === 2) throw e; await new Promise((r) => setTimeout(r, 700 * (i + 1))); }
+  }
   const scripts = [...html.matchAll(/src="(https:\/\/a-v2\.sndcdn\.com\/assets\/[^"]+\.js)"/g)].map((m) => m[1]).reverse();
   for (const url of scripts) {
     try {
@@ -154,9 +167,45 @@ async function webClientId() {
   }
   throw new Error('SoundCloud client_id not found');
 }
+// Кука oauth_token у сайта сессионная и пропадает при перезапуске, из-за чего вход «слетал» и работал только после повторного нажатия.
+// Поэтому токен запоминается зашифрованным (только если система умеет шифровать) и возвращается в cookie при следующем запуске.
+const COOKIE_DAYS = 60;
+function saveToken(token) {
+  try {
+    if (!safeStorage || !safeStorage.isEncryptionAvailable()) return;
+    const c = readConf();
+    const enc = safeStorage.encryptString(token).toString('base64');
+    if (c.tok === enc) return;
+    c.tok = enc;
+    writeConf();
+  } catch (e) { /* токен просто не запомнится */ }
+}
+function savedToken() {
+  try {
+    const c = readConf();
+    if (!c.tok || !safeStorage || !safeStorage.isEncryptionAvailable()) return '';
+    return safeStorage.decryptString(Buffer.from(c.tok, 'base64'));
+  } catch (e) { return ''; }
+}
+async function dropToken() {
+  const c = readConf();
+  if (c.tok) { delete c.tok; writeConf(); }
+  try { await ses().cookies.remove('https://soundcloud.com', 'oauth_token'); } catch (e) { /* ничего */ }
+}
 async function webToken() {
   const c = (await ses().cookies.get({ name: 'oauth_token' })).find((x) => x.value);
-  return c ? decodeURIComponent(c.value) : '';
+  if (c) {
+    const t = decodeURIComponent(c.value);
+    saveToken(t);
+    return t;
+  }
+  if (readConf().mode !== 'web') return '';
+  const t = savedToken();   // куки нет (перезапуск), но токен запомнен: возвращаем его сайту
+  if (!t) return '';
+  try {
+    await ses().cookies.set({ url: 'https://soundcloud.com', domain: '.soundcloud.com', name: 'oauth_token', value: encodeURIComponent(t), path: '/', secure: true, expirationDate: Date.now() / 1000 + COOKIE_DAYS * 86400 });
+  } catch (e) { /* без куки токен всё равно рабочий для запросов приложения */ }
+  return t;
 }
 const webGetter = (token, clientId, timeoutMs) => (p) => {
   const url = new URL(p, 'https://api-v2.soundcloud.com');
@@ -213,7 +262,9 @@ async function loginWeb(parent) {
   try {
     const token = await webToken();
     if (token) { await webGetter(token, await webClientId())('/me'); return { ok: true }; }
-  } catch (e) { /* значит, нужен вход */ }
+  } catch (e) {
+    if (e instanceof AuthError) await dropToken();   // старый токен отвергнут: убираем, чтобы окно получило свежий
+  }
 
   const win = openWindow(parent, 'https://soundcloud.com/');
   let clicked = false;
@@ -579,6 +630,7 @@ async function logout() {
   meIdCache = 0;
   const c = readConf();
   delete c.mode;
+  delete c.tok;
   writeConf();
   try { await ses().clearStorageData(); } catch (e) { /* ничего */ }
 }

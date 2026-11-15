@@ -42,7 +42,7 @@
   --a-lines: 100%;
   --a-queue: 100%;
   --a-scroll: 100%;
-  --a-thumb: 100%;
+  --a-thumb: var(--a-scroll);
 
   /* заливки панелей из этих ползунков */
   --canvas-tint: color-mix(in srgb, var(--main) var(--a-canvas), transparent);
@@ -1280,3 +1280,131 @@ button.chip:hover { color: var(--text); }
 .track { content-visibility: auto; contain-intrinsic-size: auto 56px; }
 .card { content-visibility: auto; contain-intrinsic-size: auto 168px; }
 .main.q-anim .scroller { contain: layout style; }
+
+
+/* ---------- Профиль на левой панели ---------- */
+.rail-btn.profile { width: 40px; height: 40px; border-radius: 50%; outline-offset: 3px; }
+.rail-btn.profile .avatar { display: grid; place-items: center; width: 100%; height: 100%; border-radius: 50%; overflow: hidden;
+  background: color-mix(in srgb, var(--text) 16%, transparent); color: var(--text); }
+.rail-btn.profile .avatar img { width: 100%; height: 100%; object-fit: cover; }
+.rail-btn.profile .pdot { position: absolute; right: -1px; bottom: -1px; width: 11px; height: 11px; border-radius: 50%;
+  background: #3ecf6e; box-shadow: 0 0 0 2px var(--rail, #111); }
+.rail-btn.profile.busy .pdot { background: #e0b341; animation: pdot-pulse 1s ease-in-out infinite; }
+.rail-btn.profile.err .pdot { background: #e5534b; }
+@keyframes pdot-pulse { 50% { opacity: .35; } }
+.profile-pop { position: fixed; z-index: 60; width: 270px; padding: 12px; border-radius: var(--r-3);
+  background: color-mix(in srgb, var(--rail, #1a1a1a) 94%, #000); color: var(--text);
+  border: 1px solid var(--line); box-shadow: 0 10px 30px rgba(0,0,0,.45); display: flex; flex-direction: column; gap: 12px; }
+.profile-pop[hidden] { display: flex; }
+.pp-acc + .pp-acc { padding-top: 12px; border-top: 1px solid var(--line); }
+.pp-name { display: flex; align-items: center; gap: 8px; }
+.pp-ico { width: 22px; height: 22px; display: inline-block; }
+.pp-ico .badge { padding: 4px; border-radius: 6px; }
+.pp-state { margin: 4px 0 8px; color: var(--muted); font-size: var(--fs-sm, 12px); }
+.pp-acc .err { display: block; color: #e5534b; margin-bottom: 6px; }
+
+
+/* ---------- История поиска и цвет подсказок в полях ---------- */
+.search { position: relative; }
+.search input::placeholder, .nav-search input::placeholder { color: var(--muted); opacity: 1; }
+.search-hist { position: absolute; left: -1px; right: -1px; top: calc(100% + 6px); z-index: 30; padding: 6px;
+  border-radius: var(--r-2); border: 1px solid var(--line); box-shadow: 0 10px 28px rgba(0,0,0,.4);
+  background: color-mix(in srgb, var(--rail, #1a1a1a) 94%, #000); color: var(--text); }
+.search-hist[hidden] { display: none; }
+.sh-head { display: flex; justify-content: space-between; align-items: center; padding: 4px 8px 6px; color: var(--muted); font-size: var(--fs-sm, 12px); }
+.sh-clear { color: var(--muted); font-size: inherit; }
+.sh-clear:hover { color: var(--text); }
+.sh-item { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: var(--r-1); cursor: pointer; }
+.sh-item:hover { background: color-mix(in srgb, var(--text) 10%, transparent); }
+.sh-ico { display: grid; width: 15px; height: 15px; color: var(--muted); flex-shrink: 0; }
+.sh-ico svg { width: 15px; height: 15px; }
+.sh-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sh-del { width: 20px; height: 20px; display: grid; place-items: center; color: var(--muted); border-radius: 50%; font-size: 15px; line-height: 1; }
+.sh-del svg { width: 12px; height: 12px; }
+.sh-del:hover { color: var(--text); background: color-mix(in srgb, var(--text) 14%, transparent); }
+.artist .fab { right: 14%; bottom: 14%; }
+
+/* компактные плитки цветов */
+.swatches { grid-template-columns: repeat(auto-fill, 26px); gap: 8px; }
+.swatch { width: 26px; height: 26px; border-radius: var(--r-1); font-size: 11px; }
+.swatch:hover { transform: scale(1.1); }
+.swatch.sel { outline-width: 2px; outline-offset: 2px; }
+.swatch-name { margin-top: 8px; }
+
+
+/* ---------- Анимированные окна: история поиска и аккаунт ---------- */
+.topbar:focus-within { z-index: 9; }   /* выше ползунка полотна, чтобы история его перекрывала */
+.search.hist-open { border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom-color: transparent; box-shadow: none; }
+.search-hist {
+  --tint: var(--input-tint);
+  top: 100%; left: -1px; right: -1px;
+  padding: 4px 6px 6px;
+  border: 1px solid var(--line); border-top: 0;
+  border-radius: 0 0 var(--r-2) var(--r-2);
+  box-shadow: 0 12px 24px rgba(0,0,0,.35);
+  background-color: transparent;
+  background-image: linear-gradient(var(--tint), var(--tint)), var(--wp-glass), var(--base);
+  background-attachment: scroll, fixed, fixed;
+  background-size: auto, 100vw 100vh, 100vw 100vh;
+  background-repeat: no-repeat;
+  /* выезжает сверху вниз из-под строки поиска: верх остаётся на месте, растёт нижняя граница */
+  visibility: hidden; pointer-events: none;
+  clip-path: inset(0 -30px 100% -30px);
+  transition: clip-path .22s cubic-bezier(.2,.7,.2,1), visibility 0s .22s;
+}
+.search-hist.open { visibility: visible; pointer-events: auto; clip-path: inset(0 -30px -40px -30px); transition: clip-path .22s cubic-bezier(.2,.7,.2,1), visibility 0s; }
+.search-hist[hidden] { display: block; }
+
+.profile-pop {
+  --tint: color-mix(in srgb, var(--rail) var(--a-rail), transparent);
+  border-left: 0; border-radius: 0 var(--r-3) var(--r-3) 0;
+  background-color: transparent;
+  background-image: linear-gradient(var(--tint), var(--tint)), var(--wp-glass), var(--base);
+  background-attachment: scroll, fixed, fixed;
+  background-size: auto, 100vw 100vh, 100vw 100vh;
+  background-repeat: no-repeat;
+  visibility: hidden; pointer-events: none;
+  clip-path: inset(-30px 100% -30px 0);   /* закрыто: нулевая ширина у правого края левой панели */
+  transition: clip-path .26s cubic-bezier(.2,.7,.2,1), visibility 0s .26s;
+}
+.profile-pop > * { transform: translateX(-36px); transition: transform .26s cubic-bezier(.2,.7,.2,1); }
+.profile-pop.open { visibility: visible; pointer-events: auto; clip-path: inset(-30px -40px -30px 0); transition: clip-path .26s cubic-bezier(.2,.7,.2,1), visibility 0s; }
+.profile-pop.open > * { transform: none; }
+.profile-pop[hidden] { display: flex; }
+
+/* окно аккаунта стоит на плеере: нижний край прямой, без рамки и тени вниз */
+.profile-pop { border-bottom: 0; border-radius: 0 var(--r-3) 0 0; clip-path: inset(-30px 100% 0 0); }
+.profile-pop.open { clip-path: inset(-30px -40px 0 0); }
+
+
+/* ---------- Экран загрузки ---------- */
+.boot { position: fixed; z-index: 90; left: 0; right: 0; bottom: 0; top: var(--titlebar); display: grid; place-items: center;
+  background: color-mix(in srgb, var(--rail) 96%, #000); transition: opacity .35s; }
+.boot.gone { opacity: 0; pointer-events: none; }
+.boot[hidden] { display: none; }
+.boot-card { width: min(380px, 86vw); display: flex; flex-direction: column; align-items: center; gap: 16px; color: var(--text); }
+.boot-title { font-size: var(--fs-h2); font-weight: 700; }
+.boot-spin { width: 38px; height: 38px; border-radius: 50%; border: 3px solid color-mix(in srgb, var(--text) 18%, transparent); border-top-color: var(--accent); animation: boot-spin .8s linear infinite; }
+@keyframes boot-spin { to { transform: rotate(360deg); } }
+.boot-list { width: 100%; display: flex; flex-direction: column; gap: 8px; }
+.boot-row { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: var(--r-2); background: color-mix(in srgb, var(--text) 7%, transparent); }
+.boot-row span:last-child { margin-left: auto; color: var(--muted); font-size: var(--fs-sm, 12px); text-align: right; }
+.boot-row.ok span:last-child { color: #3ecf6e; }
+.boot-row.fail span:last-child, .boot-row.out span:last-child { color: #e0b341; }
+.boot-ico { width: 24px; height: 24px; }
+.boot-ico .badge { padding: 5px; border-radius: 6px; }
+
+/* подсказка значка профиля не должна выглядывать из-под открытого окна аккаунта */
+body.profile-open #profileBtn::after { opacity: 0 !important; }
+.profile-pick { display: flex; align-items: center; gap: 14px; margin-top: 16px; }
+.avatar.big { display: grid; place-items: center; width: 56px; height: 56px; border-radius: 50%; overflow: hidden; background: color-mix(in srgb, var(--text) 16%, transparent); font-size: 22px; }
+.avatar.big img { width: 100%; height: 100%; object-fit: fill; }
+.rail-btn.profile .avatar img { object-fit: fill; }
+
+/* пока идёт загрузка: у верхней панели нет надписей (кнопки остаются), а заливка та же, что у экрана загрузки */
+body.booting .tb-title { visibility: hidden; }
+body.booting .titlebar::after { display: none; }   /* без линии обводки у верхней панели */
+body.booting .titlebar { --tint: color-mix(in srgb, var(--rail) 96%, #000); background-image: linear-gradient(var(--tint), var(--tint)); background-attachment: scroll; background-size: auto; background-repeat: no-repeat; }
+
+/* заглушка для пустых обложек (треки, плейлисты, исполнители) */
+:root { --mascot: url("placeholder.svg"); }

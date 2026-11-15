@@ -165,7 +165,7 @@
   const OPACITY = [
     ['aTitle', 'Title bar'], ['aRail', 'Side panel'], ['aMain', 'Window background and top bar'],
     ['aCanvas', 'Main canvas'], ['aCards', 'Cards and rows'], ['aControls', 'Buttons, fields and headings'],
-    ['aPlayer', 'Bottom player'], ['aQueue', 'Queue window'], ['aModal', 'Settings window'], ['aScroll', 'Scrollbars'], ['aThumb', 'Main scrollbar'], ['aLines', 'Lines and borders'],
+    ['aPlayer', 'Bottom player'], ['aQueue', 'Queue window'], ['aModal', 'Settings window'], ['aScroll', 'Scrollbars (main and others)'], ['aLines', 'Lines and borders'],
   ];
 
   const SOURCE_MODES = {
@@ -186,17 +186,17 @@
   const DEFAULTS = {
     theme: 'dark', tint: null, sat: 80, textColor: 'auto', textSat: 70, sourceMode: 'icon', sourceShow: 'auto',
     font: 'auto', fontSize: 14, pattern: 'dots', patternAlpha: 70, lang: 'en', uiScale: 100,
-    aTitle: 100, aRail: 100, aMain: 100, aCanvas: 100, aCards: 100, aControls: 100, aPlayer: 100, aQueue: 100, aModal: 100, aScroll: 100, aThumb: 100, aLines: 100,
+    aTitle: 100, aRail: 100, aMain: 100, aCanvas: 100, aCards: 100, aControls: 100, aPlayer: 100, aQueue: 100, aModal: 100, aScroll: 100, aLines: 100,
     glassBlur: 10, wpFit: 'cover', wpPos: 'c', wpBlur: 0, textOutline: 50,
     bgColor: 'auto', bgSat: 60, outlineColor: 'auto', outlineIcons: true, outlineStyle: 'soft',
     notifyTrack: false, notifyUnfocused: true, notifySilent: false,
-    autoplay: true, rememberVolume: true, volume: 70, autoSync: true, syncEvery: 15,
+    autoplay: true, rememberVolume: true, volume: 70, autoSync: true, profileSrc: 'auto', syncEvery: 15,
     hideLocked: true, searchSort: 'relevance',
   };
   const BOOLS = ['notifyTrack', 'notifyUnfocused', 'notifySilent', 'autoplay', 'rememberVolume', 'outlineIcons', 'autoSync', 'hideLocked'];
   // числовые настройки и их допустимые границы
   const NUMS = { aTitle: [0, 100], aRail: [0, 100], aMain: [0, 100], aCanvas: [0, 100], aCards: [0, 100],
-                 aPlayer: [0, 100], aQueue: [0, 100], aScroll: [0, 100], aThumb: [0, 100], aModal: [0, 100], aControls: [0, 100], aLines: [0, 100], glassBlur: [0, 24], wpBlur: [0, 40], textOutline: [0, 100], bgSat: [0, 100], uiScale: [75, 150], syncEvery: [1, 240] };
+                 aPlayer: [0, 100], aQueue: [0, 100], aScroll: [0, 100], aModal: [0, 100], aControls: [0, 100], aLines: [0, 100], glassBlur: [0, 24], wpBlur: [0, 40], textOutline: [0, 100], bgSat: [0, 100], uiScale: [75, 150], syncEvery: [1, 240] };
   const settings = { ...DEFAULTS };
   try {
     const saved = JSON.parse(localStorage.getItem(STORE_KEY)) || {};
@@ -207,6 +207,7 @@
     if (saved.textColor === 'auto' || TEXT_FIXED[saved.textColor] || TINTS.some((p) => p.id === saved.textColor)) settings.textColor = saved.textColor;
     if (pct(saved.textSat)) settings.textSat = Math.round(saved.textSat);
     if (SOURCE_MODES[saved.sourceMode]) settings.sourceMode = saved.sourceMode;
+    if (['auto', 'soundcloud', 'vk'].includes(saved.profileSrc)) settings.profileSrc = saved.profileSrc;
     if (SOURCE_SHOW[saved.sourceShow]) settings.sourceShow = saved.sourceShow;
     else if (saved.sourceMode === 'off') settings.sourceShow = 'off';   // прежнее значение «скрыто»
     if (PATTERNS[saved.pattern]) settings.pattern = saved.pattern;
@@ -283,11 +284,33 @@
 
   let likedKeys = new Set();   // треки из списков лайков платформ (ключ вида «vk:123_456»)
 
+  // Общие лайки и плейлисты идут по дате добавления: свежие сверху. Порядок внутри каждой платформы сохраняется (слияние списков),
+  // а у списка без дат (VK отдаёт только порядок) метки растягиваются по общему диапазону, и он вплетается равномерно.
+  const mergeByDate = (lists) => {
+    const lens = lists.map((l) => l.length);
+    const stamps = lists.map((l) => l.map((x) => Number(x.addedAt) || 0));
+    const all = stamps.flat().filter(Boolean);
+    const hi = all.length ? Math.max(...all) : 0, lo = all.length ? Math.min(...all) : 0;
+    const keys = lists.map((l, i) => {
+      if (!stamps[i].some(Boolean)) return l.map((_, j) => (hi ? hi - (hi - lo) * (j / Math.max(1, lens[i])) : -j));
+      let prev = Infinity;
+      return stamps[i].map((v) => { prev = Math.min(prev, v || prev); return Number.isFinite(prev) ? prev : hi; });   // порядок списка не нарушается, пропуски наследуют дату соседа
+    });
+    const pos = lists.map(() => 0), out = [];
+    for (;;) {
+      let best = -1;
+      lists.forEach((l, i) => { if (pos[i] < l.length && (best < 0 || keys[i][pos[i]] > keys[best][pos[best]])) best = i; });
+      if (best < 0) return out;
+      out.push(lists[best][pos[best]++]);
+    }
+  };
+
   // «Все треки» собираются из подключённых платформ
   function rebuildAll() {
     const parts = PLATFORMS.filter((p) => p.id !== 'all').map((p) => DATA[p.id]).filter((d) => d.connected);
     const mix = (key) => interleave(parts.map((d) => d[key]));
-    DATA.all = { connected: parts.length > 0, recent: mix('recent'), recommended: mix('recommended'), liked: mix('liked'), playlists: mix('playlists'), following: mix('following'), artists: mix('artists') };
+    const byDate = (key) => mergeByDate(parts.map((d) => d[key]));
+    DATA.all = { connected: parts.length > 0, recent: mix('recent'), recommended: mix('recommended'), liked: byDate('liked'), playlists: byDate('playlists'), following: mix('following'), artists: mix('artists') };
     likedKeys = new Set();
     PLATFORMS.filter((p) => p.id !== 'all').forEach((p) => DATA[p.id].liked.forEach((x) => likedKeys.add(trackKey(x.source, x))));
   }
@@ -503,7 +526,7 @@
 
   const ui = { section: 'appearance', sub: 'theme', search: '' };
   const player = { queue: [], index: -1, playing: false, elapsed: 0, timer: null, liked: new Set(),
-                   shuffle: false, repeat: 'off', history: [], loading: false, error: '', qgen: 0 }; // repeat: off | all | one
+                   shuffle: false, repeat: 'off', history: [], loading: false, error: '', qgen: 0, entity: '' }; // repeat: off | all | one
   let visibleTracks = [];
 
   /* ---------- Хелперы ---------- */
@@ -521,7 +544,10 @@
     return `linear-gradient(135deg,hsl(${h} 65% 55%),hsl(${(h + 55) % 360} 65% 28%))`;
   };
   // настоящая обложка поверх градиента: пока картинка грузится (или её нет), виден градиент
-  const coverBg = (seed, art) => (art ? `url(${art}) center/cover no-repeat, ${cover(seed)}` : cover(seed));
+  // заглушка (талисман из placeholder.svg) лежит между настоящей обложкой и градиентом: видна, когда обложки нет или она не загрузилась,
+  // а цвет фона вокруг неё у каждого трека свой
+  const MASCOT = 'var(--mascot) center/100% 100% no-repeat';
+  const coverBg = (seed, art) => (art ? `url(${art}) center/cover no-repeat, ${MASCOT}, ${cover(seed)}` : `${MASCOT}, ${cover(seed)}`);
   const current = () => player.queue[player.index];
   const srcVars = (p) => `--p:${p.pastel};--d:${p.deep}`;
   const badge = (p) => `<span class="badge" style="background:${p.bg};color:${p.fg}">${I[p.icon]}</span>`;
@@ -705,6 +731,114 @@
     if ($('tabs') && $('tabs').firstChild) schedulePosition();
   }
 
+  /* ---------- Профиль над кнопкой настроек: аккаунты и синхронизация ---------- */
+  const connectedSvcs = () => Object.values(SVCS).filter((s) => s.connected);
+  const PROF_IMG_KEY = 'music-player-profile-img';
+  let profileImg = '';
+  try { profileImg = localStorage.getItem(PROF_IMG_KEY) || ''; } catch (e) { profileImg = ''; }
+  // имя и картинка: приоритетная платформа первой, остальные подменяют, если у неё чего-то нет; своя картинка важнее всех
+  function profileInfo() {
+    const list = connectedSvcs();
+    if (!list.length) return null;
+    const order = [...list].sort((a, b) => (b.id === settings.profileSrc) - (a.id === settings.profileSrc) || (b.id === state.platform && settings.profileSrc === 'auto') - (a.id === state.platform && settings.profileSrc === 'auto'));
+    const named = order.find((s) => s.user && s.user.name);
+    const pic = order.find((s) => s.user && s.user.avatar);
+    return { list, name: (named && named.user.name) || platform(order[0].id).name, avatar: profileImg || (pic && pic.user.avatar) || '' };
+  }
+  function profileBtn() {
+    const info = profileInfo();
+    if (!info) return '';
+    const { list, name, avatar } = info;
+    const busy = list.some((s) => s.loading || s.syncing);
+    const err = list.some((s) => s.error);
+    return `<button class="rail-btn profile ${busy ? 'busy' : ''} ${err ? 'err' : ''}" id="profileBtn" data-tip="${esc(name)}" aria-label="${esc(name)}">
+        <span class="avatar">${avatar ? `<img src="${esc(avatar)}" alt="">` : `<b>${esc(name.trim().charAt(0).toUpperCase() || '?')}</b>`}</span>
+        <i class="pdot"></i>
+      </button>`;
+  }
+  const profileChoice = (key, name, hint) => `<button class="choice ${settings.profileSrc === key ? 'sel' : ''}" data-profile-src="${key}"><b>${esc(L(name))}</b><small>${esc(L(hint))}</small></button>`;
+  function profileControls() {
+    const info = profileInfo();
+    const letter = info ? info.name.trim().charAt(0).toUpperCase() : '?';
+    return `<div class="choices">
+        ${profileChoice('auto', 'Automatic', 'The platform you are viewing, then the others.')}
+        ${profileChoice('soundcloud', 'SoundCloud', 'Its name and picture come first.')}
+        ${profileChoice('vk', 'VK Music', 'Its name and picture come first.')}
+      </div>
+      <div class="profile-pick">
+        <span class="avatar big">${profileImg ? `<img src="${esc(profileImg)}" alt="">` : `<b>${esc(letter)}</b>`}</span>
+        <div class="btn-row">
+          <button class="btn" data-profile-pick>${L('Choose picture')}</button>
+          ${profileImg ? `<button class="btn" data-profile-clear>${L('Remove picture')}</button>` : ''}
+        </div>
+        <input type="file" id="profileFile" accept="image/*" hidden>
+      </div>`;
+  }
+  // своя картинка растягивается на весь значок: рисуем её в квадрат 128×128 без сохранения пропорций
+  function setProfileImage(file) {
+    if (!file) return;
+    const fr = new FileReader();
+    fr.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const cv = document.createElement('canvas');
+        cv.width = cv.height = 128;
+        cv.getContext('2d').drawImage(img, 0, 0, 128, 128);
+        profileImg = cv.toDataURL('image/png');
+        try { localStorage.setItem(PROF_IMG_KEY, profileImg); } catch (e) { /* ничего */ }
+        renderRail(); renderBody(true);
+      };
+      img.src = String(fr.result);
+    };
+    fr.readAsDataURL(file);
+  }
+  document.addEventListener('change', (e) => { if (e.target && e.target.id === 'profileFile') setProfileImage(e.target.files && e.target.files[0]); });
+  const profilePopHtml = () => connectedSvcs().map((s) => `
+      <div class="pp-acc">
+        <div class="pp-name"><span class="pp-ico">${badge(platform(s.id))}</span><b>${esc((s.user && s.user.name) || platform(s.id).name)}</b></div>
+        <div class="pp-state">${esc(s.loading || s.syncing ? L('Updating your library…') : L(TXT[s.id].synced))}</div>
+        ${s.error ? `<small class="err">${esc(s.error)}</small>` : ''}
+        <div class="btn-row">
+          <button class="btn" data-svc="${s.id}" data-sc="refresh" ${s.loading ? 'disabled' : ''}>${L('Refresh')}</button>
+          <button class="btn" data-svc="${s.id}" data-sc="disconnect">${L('Disconnect')}</button>
+        </div>
+      </div>`).join('');
+  function renderProfilePop() {
+    let pop = $('profilePop');
+    if (!pop) { pop = document.createElement('div'); pop.id = 'profilePop'; pop.className = 'profile-pop'; document.body.appendChild(pop); }
+    if (!connectedSvcs().length) { pop.classList.remove('open'); document.body.classList.remove('profile-open'); return; }
+    pop.innerHTML = profilePopHtml();
+  }
+  // окно выезжает из левой панели: левый край склеен с её правым краем
+  function toggleProfilePop(force) {
+    renderProfilePop();
+    const pop = $('profilePop'), b = $('profileBtn');
+    if (!pop || !b) return;
+    const open = force === undefined ? !pop.classList.contains('open') : force;
+    if (open) {
+      const rc = b.getBoundingClientRect();
+      pop.style.left = $('rail').getBoundingClientRect().right + 'px';
+      const pl = document.querySelector('.player').getBoundingClientRect();
+      pop.style.bottom = Math.max(0, window.innerHeight - pl.top) + 'px';   // стоит на верхнем краю плеера и сливается с ним
+    }
+    pop.classList.toggle('open', open);
+    document.body.classList.toggle('profile-open', open);
+  }
+  document.addEventListener('click', (e) => {
+    const pop = $('profilePop');
+    if (!pop || !pop.classList.contains('open')) return;
+    if (e.target.closest('#profilePop') || e.target.closest('#profileBtn')) return;
+    pop.classList.remove('open');
+    document.body.classList.remove('profile-open');
+  });
+  $('rail').addEventListener('click', (e) => {
+    if (e.target.closest('#profileBtn')) { e.stopPropagation(); toggleProfilePop(); }
+  }, true);
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('#profilePop [data-sc]');
+    if (b) scAction(b.dataset.sc, b.dataset.svc);
+  });
+
   /* ---------- Левая панель ---------- */
   function renderRail() {
     $('rail').innerHTML =
@@ -714,6 +848,7 @@
         </button>${i === 0 ? '<div class="rail-sep"></div>' : ''}`).join('') +
       `<div class="spacer"></div>
        <div class="rail-sep"></div>
+       ${profileBtn()}
        <button class="rail-btn settings" data-settings data-tip="${L('Settings')}" aria-label="${L('Settings')}">
          <span class="badge">${I.settings}</span>
        </button>`;
@@ -898,7 +1033,6 @@
       visibleTracks = recent.concat(more, filler);
       const recentTitle = state.platform === 'vk' ? 'Recently added' : 'Recently played';
       el.innerHTML = `
-        ${SVCS[state.platform] ? accountBar(SVCS[state.platform]) : ''}
         ${recent.length ? `<div class="section"><div class="section-title">${L(recentTitle)}</div>${cardRow(recent.map(trackCard).join(''))}</div>` : ''}
         ${more.length ? `<div class="section"><div class="section-title">${L('Recommended')}</div>${trackList(more)}</div>` : ''}
         ${artists.length ? sectionHtml(L(state.platform === 'vk' ? 'Artists in your library' : 'Artists'), grid(artists.map(userCard).join(''))) : ''}
@@ -1045,7 +1179,7 @@
   // дерево разделов слева; у некоторых есть подразделы, как в Discord
   const NAV = [
     { items: [
-      { id: 'accounts', name: 'Accounts', icon: 'person', subs: [{ id: 'platforms', name: 'Platforms' }, { id: 'sync', name: 'Sync' }] },
+      { id: 'accounts', name: 'Accounts', icon: 'person', subs: [{ id: 'platforms', name: 'Platforms' }, { id: 'sync', name: 'Sync' }, { id: 'profile', name: 'Profile icon' }] },
       { id: 'privacy', name: 'Data and privacy', icon: 'shield' },
       { id: 'notifications', name: 'Notifications', icon: 'bell' },
     ] },
@@ -1070,6 +1204,8 @@
       desc: 'Connect your music accounts. SoundCloud and VK Music sign in through a window inside the app; YouTube Music and Yandex Music will be added later.' },
     { id: 'acc-sync', section: 'accounts', sub: 'sync', title: 'Library auto-update',
       desc: 'Keeps your library fresh: while the app is open, it checks SoundCloud in the background for new liked tracks, playlists and follows.' },
+    { id: 'acc-profile', section: 'accounts', sub: 'profile', title: 'Name and picture',
+      desc: 'Which platform supplies the name and picture of the profile icon above the settings button, or use your own picture (it is stretched to fill the icon).' },
     { id: 'acc-sync-every', section: 'accounts', sub: 'sync', title: 'Update interval',
       desc: 'How often the app checks SoundCloud for changes.' },
     { id: 'priv-local', section: 'privacy', sub: null, title: 'Local data',
@@ -1096,6 +1232,8 @@
       desc: 'The color of the background itself: it shows behind the wallpaper and under transparent panels, and does not recolor the panels. It has its own saturation, brightness depends on the theme.' },
     { id: 'ap-text', section: 'appearance', sub: 'theme', title: 'Text color',
       desc: 'The main color of text and icons. "Auto" follows the theme.' },
+    { id: 'ap-outline-color', section: 'appearance', sub: 'theme', title: 'Outline color',
+      desc: 'The color of the thin outline around text and icons. Its strength and style are set in "Text and icon outline" under Wallpaper and transparency.' },
     { id: 'ap-font', section: 'appearance', sub: 'font', title: 'Font',
       desc: 'The list comes from the fonts folder in the project folder: put a font file or folder there and it will appear here.' },
     { id: 'ap-fontsize', section: 'appearance', sub: 'font', title: 'Font size',
@@ -1109,7 +1247,7 @@
     { id: 'ap-glass', section: 'appearance', sub: 'wall', title: 'Glass effect',
       desc: 'Panels slightly blur and distort the wallpaper under them. Visible when panels are semi-transparent. 0 turns the effect off.' },
     { id: 'ap-outline', section: 'appearance', sub: 'wall', title: 'Text and icon outline',
-      desc: 'A thin outline so text and icons do not get lost on busy wallpapers: strength, color and whether it applies to icons. 0 turns the outline off.' },
+      desc: 'A thin outline so text and icons do not get lost on busy wallpapers: strength, style and whether it applies to icons. Its color is under Theme and colors. 0 turns the outline off.' },
     { id: 'ap-opacity', section: 'appearance', sub: 'wall', title: 'Element transparency',
       desc: 'A separate slider for every element: title bar, side panel, window background (the top bar shares it), main canvas, cards and rows, buttons, fields and headings, player, queue window, settings window, scrollbars and lines. Elements are independent: a card can be transparent even if the canvas is not. 100% is opaque (the default), 0% is fully transparent.' },
     { id: 'ap-pattern', section: 'appearance', sub: 'panels', title: 'Panel pattern',
@@ -1117,7 +1255,7 @@
     { id: 'ap-marks', section: 'appearance', sub: 'panels', title: 'Track source',
       desc: 'How to mark the platform on tracks in "All tracks", in the queue and in the player at the bottom.' },
     { id: 'ap-marks-show', section: 'appearance', sub: 'panels', title: 'Show the platform',
-      desc: 'Where the platform marks appear: only where several platforms are mixed, always, or nowhere.' },
+      desc: 'Where the platform marks appear: only where several platforms are mixed (as now), always, or nowhere.' },
     { id: 'ap-scale', section: 'appearance', sub: 'font', title: 'Interface scale',
       desc: 'Enlarges or shrinks the whole interface: text, icons and spacing. Applied when you release the slider. The font size above changes only the text.' },
     { id: 'lang-select', section: 'language', sub: null, title: 'Interface language',
@@ -1276,10 +1414,11 @@
   const bgControls = () => colorTiles('bg', settings.bgColor) + `<div class="swatch-name">${colorName(settings.bgColor)}</div>`
     + sliderRow('bgSat', L('Saturation'), settings.bgSat, 0, 100, '%');
 
+  // цвет обводки лежит рядом с остальными цветами (раздел «Theme and colors»)
+  const outlineColorControls = () => colorTiles('outline', settings.outlineColor) + `<div class="swatch-name">${colorName(settings.outlineColor)}</div>`;
+
   const outlineControls = () => sliderRow('textOutline', L('Outline strength'), settings.textOutline, 0, 100, '%')
     + `<div class="btn-row" style="margin-top:14px"><button class="btn ${settings.outlineStyle === 'soft' ? 'primary' : ''}" data-ol-style="soft">${L('Soft')}</button><button class="btn ${settings.outlineStyle === 'sharp' ? 'primary' : ''}" data-ol-style="sharp">${L('Sharp')}</button></div>`
-    + `<div class="swatch-name" style="margin-top:14px">${L('Outline color')}</div>` + colorTiles('outline', settings.outlineColor)
-    + `<div class="swatch-name">${colorName(settings.outlineColor)}</div>`
     + `<div class="setting-row" style="margin-top:12px"><div class="setting-text">${L('Apply to icons')}</div>${switchBtn('outlineIcons', settings.outlineIcons, false)}</div>`;
 
   function fontControls() {
@@ -1445,7 +1584,8 @@
     let inner = '';
     switch (id) {
       case 'accounts':
-        inner = wrap('platforms', blockRow('acc-platforms', platformRows())) + wrap('sync', toggleRow('acc-sync', 'autoSync') + blockRow('acc-sync-every', syncControls()));
+        inner = wrap('platforms', blockRow('acc-platforms', platformRows())) + wrap('sync', toggleRow('acc-sync', 'autoSync') + blockRow('acc-sync-every', syncControls()))
+                    + wrap('profile', blockRow('acc-profile', profileControls()));
         break;
       case 'privacy':
         inner = infoRow('priv-local') + buttonRow('priv-reset', `<button class="btn danger" data-action="reset">${L('Reset')}</button>`);
@@ -1458,7 +1598,7 @@
         inner = toggleRow('play-auto', 'autoplay') + toggleRow('play-volume', 'rememberVolume');
         break;
       case 'appearance':
-        inner = wrap('theme', blockRow('ap-theme', themeSliderHtml()) + blockRow('ap-tint', tintControls()) + blockRow('ap-bg', bgControls()) + blockRow('ap-text', textControls()))
+        inner = wrap('theme', blockRow('ap-theme', themeSliderHtml()) + blockRow('ap-tint', tintControls()) + blockRow('ap-bg', bgControls()) + blockRow('ap-text', textControls()) + blockRow('ap-outline-color', outlineColorControls()))
               + wrap('wall', blockRow('ap-wallpaper', wallpaperControls()) + blockRow('ap-wp-fit', fitControls())
                            + blockRow('ap-wp-blur', sliderRow('wpBlur', L('Blur'), settings.wpBlur, 0, 40, ' px'))
                            + blockRow('ap-glass', sliderRow('glassBlur', L('Effect strength'), settings.glassBlur, 0, 24, ' px'))
@@ -1770,7 +1910,19 @@
   }
 
   // подсветка играющего трека и значок в его строке или карточке: пауза, пока звук идёт, иначе воспроизведение
+  // ключ страницы, которую открывает карточка (совпадает с viewKey страницы)
+  // ключ страницы по её данным (совпадает с viewKey); карточки при перерисовке берут по нему своё состояние
+  const entKey = (kind, src, id, url, name) => `${src || 'soundcloud'}:${kind}:${Math.floor(Number(id)) || url || name || ''}`;
+  const cardKey = (el) => entKey(el.dataset.open, el.dataset.src, el.dataset.id, el.dataset.url, el.dataset.name);
+  const entityOn = (key) => !!key && player.entity === key && !!current();
   function markPlaying() {
+    document.querySelectorAll('.card[data-open]').forEach((el) => {
+      const on = entityOn(cardKey(el));
+      el.classList.toggle('playing', on);
+      const fab = el.querySelector('.fab');
+      const want = on && player.playing ? 'pause' : 'play';
+      if (fab && fab.dataset.g !== want) { fab.dataset.g = want; fab.innerHTML = want === 'pause' ? I.pause : I.play; }
+    });
     const id = current() ? current().id : null;
     document.querySelectorAll('[data-track]').forEach((el) => {
       const isCur = Number(el.dataset.track) === id;
@@ -1788,7 +1940,7 @@
     // отметка платформы у играющего трека: так же, как на карточках (значок на обложке, у названия или подпись)
     const src = t ? platform(t.source) : null;
     const mode = showMarks() ? settings.sourceMode : null;
-    $('npCover').style.background = t ? coverBg(t.title + t.artist, t.art) : '';
+    $('npCover').style.background = t ? coverBg(t.title + t.artist, t.art) : `${MASCOT}, var(--panel)`;
     $('npCover').innerHTML = src && mode === 'icon'
       ? `<span class="cover-ico np-ico" style="${srcVars(src)}" title="${esc(src.name)}">${I[src.icon]}</span>` : '';
     $('npTitle').innerHTML = (src && mode === 'title' ? srcIcon(src, 'sm') : '')
@@ -2264,11 +2416,13 @@
     soundcloud: { connect: 'Connect SoundCloud', loading: 'Loading your SoundCloud library…', synced: 'Library synced with SoundCloud.', expired: 'Your SoundCloud session expired. Connect again.' },
     vk:         { connect: 'Connect VK Music',   loading: 'Loading your VK Music library…',   synced: 'Library synced with VK Music.',   expired: 'Your VK Music session expired. Connect again.' },
   };
-  const LIB_V = { soundcloud: 4, vk: 5 };   // версия формата библиотеки: у кэша старой версии нет полей, нужных страницам и замкам
+  const LIB_V = { soundcloud: 5, vk: 5 };   // версия формата библиотеки: у кэша старой версии нет полей, нужных страницам и замкам
   const scApi = () => sc.api();
   const scErrorText = (e) => String(e || '');
 
   function scRerender() {
+    renderRail();
+    if ($('profilePop') && $('profilePop').classList.contains('open')) renderProfilePop();
     renderContent();
     restoreScroll();
     markPlaying();
@@ -2285,25 +2439,87 @@
     try { localStorage.removeItem(s.cache); } catch (e) { /* ничего */ }
   }
 
+  const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+  const wasConnected = (s) => { try { return !!localStorage.getItem(s.cache); } catch (e) { return false; } };
+
+  // Экран загрузки при запуске: пока сервисы, к которым вы входили раньше, проверяют вход и подтягивают библиотеку.
+  // Часть входов оживает только со второй попытки, поэтому при отказе приложение повторяет запрос и, если разрешено, входит заново само.
+  const bootUi = { rows: {}, done: false };
+  const BOOT_TXT = { check: 'Checking sign-in…', relogin: 'Signing in again…', load: 'Loading your library…', ok: 'Ready', fail: 'Could not load, will retry in the background', out: 'Signed out' };
+  function bootRender() {
+    const el = $('bootList');
+    if (!el) return;
+    el.innerHTML = Object.entries(bootUi.rows).map(([id, st]) =>
+      `<div class="boot-row ${st}"><span class="boot-ico">${badge(platform(id))}</span><b>${esc(platform(id).name)}</b><span>${esc(L(BOOT_TXT[st] || st))}</span></div>`).join('');
+    const t = $('bootTitle'); if (t) t.textContent = L('Loading your music…');
+    const sk = $('bootSkip'); if (sk) sk.textContent = L('Skip');
+  }
+  const bootSet = (id, st) => { if (id in bootUi.rows) { bootUi.rows[id] = st; bootRender(); } };
+  function bootHide() {
+    if (bootUi.done) return;
+    bootUi.done = true;
+    const el = $('boot');
+    document.body.classList.remove('booting');
+    if (el) { el.classList.add('gone'); setTimeout(() => { el.hidden = true; }, 350); }
+  }
+
+  // Каждый сервис проверяется отдельно: первая попытка; при ошибке сервиса (нет входа, сессия просрочена, сбой загрузки) —
+  // вторая попытка (для входа: повторный вход, как повторное нажатие Connect); вторая ошибка заканчивает проверку этого сервиса.
   async function scInit(s) {
     const api = s.api();
     if (!api) return;
-    try {
-      const st = await api.status();
-      s.connected = !!st.connected;
+    const before = wasConnected(s);   // входили ли раньше (есть сохранённая библиотека)
+    const getStatus = async () => { try { return await api.status(); } catch (e) { return null; } };
+    // одна попытка: 'ok' | 'auth' (нет входа или сессия просрочена) | 'fail' (сбой загрузки)
+    const attempt = async () => {
+      bootSet(s.id, 'check');
+      const st = await getStatus();
+      if (!st) return 'fail';
+      if (!st.connected) { s.connected = false; return 'auth'; }
+      s.connected = true;
       s.mode = st.mode;
-    } catch (e) { return; }
-    if (!s.connected) return scRerender();
-    try { // сначала показываем сохранённую копию, чтобы приложение не пустовало, пока грузится свежая библиотека
-      const cached = JSON.parse(localStorage.getItem(s.cache) || 'null');
-      if (cached && Array.isArray(cached.liked) && Array.isArray(cached.recent)) {
-        s.user = cached.me;
-        applyLibrary(s.id, cached);
-        s.sig = cached.v === LIB_V[s.id] ? libSig(cached) : '';
+      if (!s.sig) {
+        try { // сначала показываем сохранённую копию, чтобы приложение не пустовало, пока грузится свежая библиотека
+          const cached = JSON.parse(localStorage.getItem(s.cache) || 'null');
+          if (cached && Array.isArray(cached.liked) && Array.isArray(cached.recent)) {
+            s.user = cached.me;
+            applyLibrary(s.id, cached);
+            s.sig = cached.v === LIB_V[s.id] ? libSig(cached) : '';
+          }
+        } catch (e) { /* копии нет */ }
       }
-    } catch (e) { /* копии нет */ }
-    scSchedule();
-    scRefresh(s);
+      scSchedule();
+      bootSet(s.id, 'load');
+      const res = await scRefresh(s);
+      return res === 'ok' ? 'ok' : res === 'auth' ? 'auth' : 'fail';
+    };
+    let res = await attempt();
+    if (res !== 'ok' && before) {   // ошибка сервиса: вторая попытка
+      if (res === 'auth' && api.login) {
+        bootSet(s.id, 'relogin');
+        let lr; try { lr = await api.login(); } catch (e) { lr = null; }
+        if (lr && lr.ok) s.connected = true;
+      } else await sleep(1500);
+      res = await attempt();
+    }
+    bootSet(s.id, res === 'ok' ? 'ok' : res === 'auth' ? 'out' : 'fail');
+    if (res === 'auth') scRerender();
+    // сбой сети после двух попыток: приложение не сдаётся и тихо повторяет позже, пока библиотека не загрузится
+    if (res === 'fail' && s.connected) [20000, 60000, 180000].forEach((ms) => setTimeout(() => { if (s.connected && s.error) scRefresh(s, true); }, ms));
+  }
+
+  function bootSync() {
+    const list = Object.values(SVCS);
+    const known = list.filter(wasConnected);
+    if (known.length && $('boot')) {   // экран загрузки только тем, кто уже входил
+      known.forEach((s) => { bootUi.rows[s.id] = 'check'; });
+      $('boot').hidden = false;
+      document.body.classList.add('booting');
+      bootRender();
+      $('bootSkip').addEventListener('click', bootHide);
+      setTimeout(bootHide, 30000);   // не держим окно дольше полуминуты
+    }
+    Promise.allSettled(list.map(scInit)).then(() => setTimeout(bootHide, 450));
   }
 
   // подпись только по составу списков: счётчики прослушиваний меняются постоянно и не должны каждый раз перерисовывать экран
@@ -2342,6 +2558,7 @@
     if (r && r.ok) {
       const changed = libSig(r.library) !== s.sig;
       s.connected = true;
+      s.error = '';
       s.user = r.library.me;
       if (changed) { applyLibrary(s.id, r.library); s.sig = libSig(r.library); }
       try { localStorage.setItem(s.cache, JSON.stringify(r.library)); } catch (e) { /* не влезло, не страшно */ }
@@ -2359,6 +2576,7 @@
       scRerender();
     }
     if (s.again) { s.again = false; scRefresh(s, true); }
+    return r && r.ok ? 'ok' : r && r.auth ? 'auth' : 'fail';
   }
 
   // автосинхронизация: пока приложение открыто, раз в N минут тихо обновляем библиотеки подключённых сервисов
@@ -2556,9 +2774,10 @@
     const m = srcMarks(pl.source);
     const sub = [pl.isAlbum ? L('Album') : '', pl.count ? L('{0} tr.', pl.count) : ''].filter(Boolean).join(', ');
     const open = !!(pl.scId || pl.url);   // страница плейлиста есть у SoundCloud и VK
+    const on = open && entityOn(entKey('playlist', pl.source, pl.scId, pl.url, ''));
     return `
-      <div class="card ${m.cls}" ${open ? `data-open="playlist" ${refAttrs(pl.source, pl.scId, pl.url)}` : ''}>
-        <div class="cover" style="background:${esc(coverBg(pl.name, pl.art))}">${m.cover}${open ? `<span class="fab">${I.play}</span>` : ''}</div>
+      <div class="card ${m.cls} ${on ? 'playing' : ''}" ${open ? `data-open="playlist" ${refAttrs(pl.source, pl.scId, pl.url)}` : ''}>
+        <div class="cover" style="background:${esc(coverBg(pl.name, pl.art))}">${m.cover}${open ? `<span class="fab" data-g="${on && player.playing ? 'pause' : 'play'}">${on && player.playing ? I.pause : I.play}</span>` : ''}</div>
         <div class="card-title">${m.title}<span class="t-text">${esc(pl.name)}</span></div>
         <div class="card-sub">${esc(sub)}</div>
         ${m.label}
@@ -2568,9 +2787,11 @@
   function userCard(u) {
     const m = srcMarks(u.source);
     const sub = u.followers ? L('{0} followers', fmtNum(u.followers)) : u.trackCount ? L('{0} tr.', u.trackCount) : '';
+    const open = !!(u.scId || u.url);
+    const on = open && entityOn(entKey('artist', u.source, u.scId, u.url, u.name));
     return `
-      <div class="card artist ${m.cls}" ${u.scId || u.url ? `data-open="artist" ${refAttrs(u.source, u.scId, u.url, u.name)}` : ''}>
-        <div class="cover" style="background:${esc(coverBg(u.name, u.art))}">${m.cover}</div>
+      <div class="card artist ${m.cls} ${on ? 'playing' : ''}" ${open ? `data-open="artist" ${refAttrs(u.source, u.scId, u.url, u.name)}` : ''}>
+        <div class="cover" style="background:${esc(coverBg(u.name, u.art))}">${m.cover}${open ? `<span class="fab" data-g="${on && player.playing ? 'pause' : 'play'}">${on && player.playing ? I.pause : I.play}</span>` : ''}</div>
         <div class="card-title">${m.title}<span class="t-text">${esc(u.name)}</span></div>
         ${sub ? `<div class="card-sub">${esc(sub)}</div>` : ''}
         ${m.label}
@@ -3030,8 +3251,9 @@
   }
 
   // запустить список с начала (или с случайного трека); закрытые треки очередь пропускает
-  function playList(list, shuffle) {
+  function playList(list, shuffle, entity) {
     if (!list.length) return;
+    player.entity = entity || '';   // страница (плейлист, альбом, артист), чей список сейчас в очереди: на её карточке показывается пауза
     player.advance = true;
     player.queue = list.slice();
     player.qgen++;
@@ -3043,7 +3265,7 @@
   function playAll(shuffle) {
     if (!visibleTracks.length) return;
     if (!shuffle && current() && !locked(current()) && heroTracks().some((x) => x.id === current().id)) return toggle();
-    playList(visibleTracks, shuffle);
+    playList(visibleTracks, shuffle, state.view ? viewKey(state.view) : '');
   }
 
   // ▶ на карточке плейлиста или альбома запускает воспроизведение и не открывает страницу
@@ -3059,7 +3281,7 @@
     const d = pg.data;
     const seen = new Set();
     const list = d.kind === 'playlist' ? d.tracks : d.kind === 'artist' ? [...d.popular, ...d.tracks] : [d.track];
-    playList(list.filter((x) => x && !seen.has(x.id) && seen.add(x.id)), false);
+    playList(list.filter((x) => x && !seen.has(x.id) && seen.add(x.id)), false, viewKey(view));
   }
 
   function pageAction(btn) {
@@ -3106,11 +3328,67 @@
 
   ['wheel', 'touchstart', 'pointerdown'].forEach((ev) => scrollerEl().addEventListener(ev, () => { pendingScroll = null; }, { passive: true }));   // своя прокрутка важнее возврата
 
+  /* ---------- История поиска: выпадает под строкой поиска ---------- */
+  const HIST_KEY = 'music-player-search-history';
+  const HIST_MAX = 12;
+  let searchHist = [];
+  try { const h = JSON.parse(localStorage.getItem(HIST_KEY) || '[]'); if (Array.isArray(h)) searchHist = h.filter((x) => typeof x === 'string').slice(0, HIST_MAX); } catch (e) { /* пусто */ }
+  const saveHist = () => { try { localStorage.setItem(HIST_KEY, JSON.stringify(searchHist)); } catch (e) { /* ничего */ } };
+  const pushHist = (q) => {
+    q = String(q || '').trim();
+    if (q.length < 2) return;
+    searchHist = [q, ...searchHist.filter((x) => x.toLowerCase() !== q.toLowerCase())].slice(0, HIST_MAX);
+    saveHist();
+  };
+  let histTimer = null;
+  function histPop() {
+    let pop = $('searchHist');
+    if (!pop) { pop = document.createElement('div'); pop.id = 'searchHist'; pop.className = 'search-hist'; $('searchBox').appendChild(pop); }
+    return pop;
+  }
+  function showHist(on) {
+    histPop().classList.toggle('open', on);
+    $('searchBox').classList.toggle('hist-open', on);
+  }
+  function renderHist() {
+    const pop = histPop();
+    const typed = $('searchInput').value.trim().toLowerCase();
+    const items = searchHist.filter((x) => x.toLowerCase().includes(typed) && x.toLowerCase() !== typed).slice(0, 8);
+    if (!items.length || document.activeElement !== $('searchInput')) { showHist(false); return; }
+    pop.innerHTML = `<div class="sh-head"><span>${L('Recent searches')}</span><button type="button" class="sh-clear" data-hist-clear>${L('Clear')}</button></div>`
+      + items.map((x) => `<div class="sh-item" data-hist="${esc(x)}"><span class="sh-ico">${I.search}</span><span class="sh-text">${esc(x)}</span><button type="button" class="sh-del" data-hist-del="${esc(x)}" aria-label="${L('Remove')}">${I.close || '×'}</button></div>`).join('');
+    showHist(true);
+  }
+  function applyQuery(value) {
+    const inp = $('searchInput');
+    inp.value = value;
+    inp.dispatchEvent(new Event('input', { bubbles: true }));
+  }
   $('searchInput').addEventListener('input', (e) => {
     state.query = e.target.value.trim().toLowerCase();
     if (!state.query) state.searchFilter = newSearchFilter();   // фильтры сбрасываются вместе с запросом
     scheduleSearch();
     renderContent();
+    renderHist();
+    clearTimeout(histTimer);
+    histTimer = setTimeout(() => pushHist(e.target.value), 1800);   // запрос, на котором остановились, попадает в историю
+  });
+  $('searchInput').addEventListener('focus', renderHist);
+  $('searchInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { clearTimeout(histTimer); pushHist(e.target.value); showHist(false); }
+    else if (e.key === 'Escape') showHist(false);
+  });
+  $('searchInput').addEventListener('blur', () => { clearTimeout(histTimer); pushHist($('searchInput').value); setTimeout(() => showHist(false), 0); });
+  // mousedown вместо click: поле не должно терять фокус раньше времени
+  $('searchBox').addEventListener('mousedown', (e) => {
+    const del = e.target.closest('[data-hist-del]');
+    const clr = e.target.closest('[data-hist-clear]');
+    const it = e.target.closest('[data-hist]');
+    if (!del && !clr && !it) return;
+    e.preventDefault();
+    if (del) { searchHist = searchHist.filter((x) => x !== del.dataset.histDel); saveHist(); renderHist(); }
+    else if (clr) { searchHist = []; saveHist(); renderHist(); }
+    else { applyQuery(it.dataset.hist); pushHist(it.dataset.hist); showHist(false); }
   });
 
   $('content').addEventListener('click', (e) => {
@@ -3127,6 +3405,7 @@
       const ref = { src: open.dataset.src, id: open.dataset.id, url: open.dataset.url, name: open.dataset.name };
       const fab = e.target.closest('.fab');
       if (fab && open.contains(fab)) {   // ▶ на карточке: играть, страницу не открывать
+        if (entityOn(cardKey(open))) { toggle(); return; }   // этот список уже играет: пауза или продолжение
         fab.classList.add('busy');
         return playEntity(open.dataset.open, ref).catch(() => {}).then(() => fab.classList.remove('busy'));
       }
@@ -3227,6 +3506,11 @@
       $$('.pos').forEach((b) => b.classList.toggle('sel', b.dataset.wpPos === settings.wpPos));
       return;
     }
+
+    const pSrc = t.closest('[data-profile-src]');
+    if (pSrc) { settings.profileSrc = pSrc.dataset.profileSrc; saveSettings(); renderRail(); renderBody(true); return; }
+    if (t.closest('[data-profile-pick]')) { const f = $('profileFile'); if (f) f.click(); return; }
+    if (t.closest('[data-profile-clear]')) { profileImg = ''; try { localStorage.removeItem(PROF_IMG_KEY); } catch (e) { /* ничего */ } renderRail(); renderBody(true); return; }
 
     const op = t.closest('[data-open]');
     if (op) return openSupportLink((supportCfg.links[Number(op.dataset.open)] || {}).url);
@@ -3575,7 +3859,7 @@
   // сначала подгружаем языки, потом рисуем интерфейс: так при запуске не мелькает русский текст
   const boot = () => { renderWindowControls(); renderAll(); updatePlayer(); };
   loadLocales().then(boot, boot);
-  Object.values(SVCS).forEach(scInit);
+  bootSync();
   if (window.api && window.api.appInfo) Promise.resolve(window.api.appInfo()).then((i) => { info = i || {}; }).catch(() => {});
   if (window.api && window.api.getWallpaper) {
     Promise.resolve(window.api.getWallpaper()).then((w) => { wallpaper = w || null; wp.bitmap = null; applyTheme(); }).catch(() => {});

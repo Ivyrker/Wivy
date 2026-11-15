@@ -226,7 +226,7 @@ app.whenReady().then(() => {
     app.configureHostResolver({
       enableBuiltInResolver: true,
       secureDnsMode: 'automatic',
-      secureDnsServers: ['https://cloudflare-dns.com/dns-query', 'https://dns.google/dns-query'],
+      secureDnsServers: ['https://cloudflare-dns.com/dns-query', 'https://dns.google/dns-query', 'https://dns.quad9.net/dns-query', 'https://common.dot.dns.yandex.net/dns-query', 'https://dns.adguard-dns.com/dns-query'],
     });
   } catch (e) { /* ничего */ }
   // hls.js читает звук VK через XHR, а сервера VK не разрешают это странице из файла: добавляем разрешение к их ответам

@@ -32,18 +32,31 @@ const ses = () => session.fromPartition(PARTITION);
 const chromeUA = () => ses().getUserAgent().replace(/\s*Electron\/\S+/, '').replace(/\s*music-player\/\S+/i, '');
 const hostOf = (u) => { try { const m = new URL(u).hostname.match(/(?:^|\.)(vk\.(?:com|ru))$/); return m ? m[1] : null; } catch (e) { return null; } };
 
+// сетевые сбои (подмена адреса провайдером → ERR_CERT_COMMON_NAME_INVALID, обрыв, DNS) часто проходят сами: повторяем запрос с паузой
+const NET_ERR = /ERR_(?:CERT|NAME|CONNECTION|NETWORK|TIMED_OUT|INTERNET|SSL|TUNNEL|PROXY|ADDRESS|EMPTY_RESPONSE|FAILED)|fetch failed/i;
 async function request(host, p, form) {
-  const res = await ses().fetch(`https://m.${host}${p}`, {
-    method: form ? 'POST' : 'GET',
-    credentials: 'include', // cookie окна входа
-    headers: {
-      'User-Agent': chromeUA(),
-      'X-Requested-With': 'XMLHttpRequest',
-      ...(form ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {}),
-    },
-    body: form ? new URLSearchParams(form).toString() : undefined,
-  });
-  return { res, text: await res.text() };
+  let last;
+  for (let i = 0; i < 4; i++) {
+    try {
+      const res = await ses().fetch(`https://m.${host}${p}`, {
+        method: form ? 'POST' : 'GET',
+        credentials: 'include', // cookie окна входа
+        headers: {
+          'User-Agent': chromeUA(),
+          'X-Requested-With': 'XMLHttpRequest',
+          ...(form ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {}),
+        },
+        body: form ? new URLSearchParams(form).toString() : undefined,
+      });
+      return { res, text: await res.text() };
+    } catch (e) {
+      last = e;
+      if (!NET_ERR.test(String((e && e.message) || e))) throw e;
+      log('network error, retry', i + 1, '|', String((e && e.message) || e));
+      await new Promise((r) => setTimeout(r, 800 * (i + 1)));
+    }
+  }
+  throw last;
 }
 
 /* ---------- Приведение ответов VK к одному виду ---------- */
