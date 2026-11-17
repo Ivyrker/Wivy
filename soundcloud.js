@@ -24,11 +24,11 @@ function writeConf() { try { fs.writeFileSync(confFile(), JSON.stringify(conf));
 /* ---------- Сеть ---------- */
 const ses = () => session.fromPartition(PARTITION);
 // обычный Chrome без пометок Electron: так вход через Google и Apple реже отвергается
-const chromeUA = () => ses().getUserAgent().replace(/\s*Electron\/\S+/, '').replace(/\s*music-player\/\S+/i, '');
+const chromeUA = () => ses().getUserAgent().replace(/\s*Electron\/\S+/, '').replace(/\s*wivy\/\S+/i, '');
 
 async function getJson(url, headers, timeoutMs) {
   const res = await net.fetch(url, { headers: { Accept: 'application/json', 'User-Agent': chromeUA(), ...headers }, ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}) });
-  if (res.status === 401) throw new AuthError('Session expired (HTTP 401)');
+  if (res.status === 401) throw new AuthError('Session expired');
   if (!res.ok) throw new Error('HTTP ' + res.status);
   return res.json();
 }
@@ -165,7 +165,7 @@ async function webClientId() {
       if (m) return (clientIdCache = m[1]);
     } catch (e) { /* пробуем следующий файл */ }
   }
-  throw new Error('SoundCloud client_id not found');
+  throw new Error('SoundCloud did not return its access data');
 }
 // Кука oauth_token у сайта сессионная и пропадает при перезапуске, из-за чего вход «слетал» и работал только после повторного нажатия.
 // Поэтому токен запоминается зашифрованным (только если система умеет шифровать) и возвращается в cookie при следующем запуске.
@@ -346,9 +346,9 @@ async function resolveStream(get, trackId) {
   log('no playable stream for track', trackId, '| available:', all.map(describe).join(', ') || 'none', '| tried:', notes.join('; ') || 'nothing');
   if (regionBlocked(t) || !all.length) return { ok: false, lock: 'region', error: 'This track is not available in your region' };
   if (!list.length && all.length) {
-    return { ok: false, lock: 'drm', error: 'Only protected or unsupported formats are available for this track (' + [...new Set(all.map((x) => x.format.protocol))].join(', ') + ')' };
+    return { ok: false, lock: 'drm', error: 'This track only comes in protected or unsupported formats (' + [...new Set(all.map((x) => x.format.protocol))].join(', ') + ')' };
   }
-  return { ok: false, error: lastError ? lastError.message : 'No playable stream (the track may be restricted in your region)' };
+  return { ok: false, error: lastError ? lastError.message : 'No playable stream. The track may be restricted in your region.' };
 }
 
 async function stream(trackId) {
@@ -585,12 +585,12 @@ async function writeLike(token, clientId, userId, trackId, on, kind = 'track') {
   } catch (e) { body = String((e && e.message) || e); }
   log('like', method, trackId, 'direct ->', status, body.replace(/\s+/g, ' '));
   if (ok(status)) return;
-  if (status === 401) throw new AuthError('Session expired (HTTP 401)');
+  if (status === 401) throw new AuthError('Session expired');
 
   const r = await pageRequest({ method, path, token, fallbackClientId: clientId });
   log('like', method, trackId, 'via page ->', r.status, r.siteClientId ? '(site client_id)' : '(own client_id)', String(r.text || '').replace(/\s+/g, ' '));
   if (ok(r.status)) return;
-  if (r.status === 401) throw new AuthError('Session expired (HTTP 401)');
+  if (r.status === 401) throw new AuthError('Session expired');
   throw new Error('HTTP ' + r.status);
 }
 

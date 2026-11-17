@@ -53,9 +53,9 @@ contextBridge.exposeInMainWorld('api', {
     like: (track, on) => ipcRenderer.invoke('vk:like', { vkId: track && track.vkId, hash: track && track.hash, trackCode: track && track.trackCode }, !!on), // добавить трек в аудиозаписи или убрать
   },
 
-  // языки интерфейса из локальной папки locales
-  listLocales: () => ipcRenderer.invoke('locales:list'),
-  openLocalesFolder: () => ipcRenderer.invoke('locales:open-folder'),
+  // языки интерфейса из локальной папки languages
+  listLanguages: () => ipcRenderer.invoke('languages:list'),
+  openLanguagesFolder: () => ipcRenderer.invoke('languages:open-folder'),
 
   // масштаб всего интерфейса (1 = 100%)
   setZoom: (factor) => { const f = Number(factor); if (f >= 0.5 && f <= 3) webFrame.setZoomFactor(f); },
@@ -63,7 +63,7 @@ contextBridge.exposeInMainWorld('api', {
   // обои
   getWallpaper: () => ipcRenderer.invoke('wallpaper:get'),
   readWallpaper: () => ipcRenderer.invoke('wallpaper:read'),
-  pickWallpaper: () => ipcRenderer.invoke('wallpaper:pick'),
+  pickWallpaper: (labels) => ipcRenderer.invoke('wallpaper:pick', { title: labels && labels.title, filter: labels && labels.filter }), // подписи окна выбора файла, на языке интерфейса
   clearWallpaper: () => ipcRenderer.invoke('wallpaper:clear'),
 
   appInfo: () => ipcRenderer.invoke('app:info'),

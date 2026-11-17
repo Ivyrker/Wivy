@@ -1,10 +1,11 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:; img-src 'self' data: file: blob: https://*.sndcdn.com https://*.vkuser.net https://*.vkuseraudio.net https://*.vkuseraudio.ru https://*.vk-cdn.net https://*.userapi.com https://*.vkuserphoto.ru https://*.vk.com https://*.vk.ru https://*.vk.me https://*.mycdn.me https://*.okcdn.ru; media-src 'self' blob: https://*.sndcdn.com https://*.soundcloud.cloud https://*.vkuser.net https://*.vkuseraudio.net https://*.vkuseraudio.ru https://*.vk-cdn.net https://*.userapi.com https://*.vkuserphoto.ru https://*.vk.com https://*.vk.ru https://*.vk.me https://*.mycdn.me https://*.okcdn.ru; connect-src 'self' https://*.sndcdn.com https://*.soundcloud.cloud https://*.vkuser.net https://*.vkuseraudio.net https://*.vkuseraudio.ru https://*.vk-cdn.net https://*.userapi.com https://*.vkuserphoto.ru https://*.vk.com https://*.vk.ru https://*.vk.me https://*.mycdn.me https://*.okcdn.ru">
-  <title>Music Player</title>
+  <title>Wivy</title>
+  <link rel="icon" type="image/png" href="icon.png">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -16,8 +17,8 @@
          свои кнопки окна справа (рисуются в renderer.js). -->
     <header class="titlebar">
       <div class="tb-nav">
-        <button class="tb-btn" id="tbBack" title="Назад (Alt+←)" aria-label="Назад" disabled></button>
-        <button class="tb-btn" id="tbForward" title="Вперёд (Alt+→)" aria-label="Вперёд" disabled></button>
+        <button class="tb-btn" id="tbBack" title="Back (Alt+←)" aria-label="Back" disabled></button>
+        <button class="tb-btn" id="tbForward" title="Forward (Alt+→)" aria-label="Forward" disabled></button>
       </div>
       <div class="tb-title" id="tbTitle"></div>
       <div class="wc" id="winControls"></div>
@@ -33,7 +34,7 @@
         <div class="tabs" id="tabs"></div>
         <label class="search" id="searchBox">
           <span id="searchIcon"></span>
-          <input id="searchInput" type="text" placeholder="Поиск по трекам">
+          <input id="searchInput" type="text" placeholder="Search tracks">
         </label>
       </header>
       <!-- прокручивается вся область; основное полотно (#content) по высоте равно содержимому,
@@ -65,11 +66,11 @@
     <!-- Нижний плеер в стиле SoundCloud -->
     <footer class="player">
       <div class="transport">
-        <button class="icon-btn" id="prevBtn" title="Назад"></button>
-        <button class="play-btn" id="playBtn" title="Играть"></button>
-        <button class="icon-btn" id="nextBtn" title="Вперёд"></button>
-        <button class="icon-btn" id="shuffleBtn" title="Перемешивание выключено"></button>
-        <button class="icon-btn" id="repeatBtn" title="Повтор выключен"></button>
+        <button class="icon-btn" id="prevBtn" title="Previous"></button>
+        <button class="play-btn" id="playBtn" title="Play"></button>
+        <button class="icon-btn" id="nextBtn" title="Next"></button>
+        <button class="icon-btn" id="shuffleBtn" title="Shuffle off"></button>
+        <button class="icon-btn" id="repeatBtn" title="Repeat off"></button>
       </div>
 
       <div class="progress">
@@ -89,11 +90,11 @@
       <div class="np">
         <div class="np-cover" id="npCover"></div>
         <div class="np-meta">
-          <div class="np-artist" id="npArtist">Выберите трек</div>
-          <div class="np-title" id="npTitle">Ничего не играет</div>
+          <div class="np-artist" id="npArtist">Pick a track</div>
+          <div class="np-title" id="npTitle">Nothing is playing</div>
           <div class="card-src np-src" id="npSrc"></div>
         </div>
-        <button class="icon-btn heart" id="likeBtn" title="Нравится"></button>
+        <button class="icon-btn heart" id="likeBtn" title="Like"></button>
         <button class="icon-btn" id="queueBtn" aria-label="Queue"></button>
       </div>
     </footer>
@@ -102,6 +103,7 @@
   <!-- Экран загрузки при запуске: пока подключённые сервисы проверяют вход и грузят библиотеку -->
   <div class="boot" id="boot" hidden>
     <div class="boot-card">
+      <img class="boot-logo" src="icon.png" alt="" aria-hidden="true" draggable="false">
       <div class="boot-spin" aria-hidden="true"></div>
       <div class="boot-title" id="bootTitle">Loading your music…</div>
       <div class="boot-list" id="bootList"></div>
@@ -111,16 +113,16 @@
 
   <!-- Окно настроек поверх приложения -->
   <div class="overlay" id="overlay" hidden>
-    <div class="modal" role="dialog" aria-modal="true" aria-label="Настройки">
+    <div class="modal" role="dialog" aria-modal="true" aria-label="Settings">
       <nav class="modal-nav">
         <label class="nav-search">
           <span id="navSearchIcon"></span>
-          <input id="settingsSearch" type="text" placeholder="Поиск по настройкам" autocomplete="off">
+          <input id="settingsSearch" type="text" placeholder="Search settings" autocomplete="off">
         </label>
         <div class="nav-tree" id="navTree"></div>
       </nav>
       <div class="modal-body" id="modalBody"></div>
-      <button class="close" id="closeBtn" title="Закрыть (Esc)" aria-label="Закрыть"></button>
+      <button class="close" id="closeBtn" title="Close (Esc)" aria-label="Close"></button>
     </div>
   </div>
 

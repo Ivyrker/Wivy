@@ -1,17 +1,78 @@
 {
-  "name": "music-player",
-  "version": "1.0.0",
-  "description": "",
+  "name": "wivy",
+  "productName": "Wivy",
+  "version": "1.0",
+  "description": "Customizable player, aggregator of music services",
   "main": "main.js",
-  "scripts": { "start": "electron ." },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder"
+  },
+  "keywords": [
+    "music",
+    "player",
+    "soundcloud",
+    "vk",
+    "electron"
+  ],
+  "author": "Ivyrker",
+  "license": "GPL-3.0-only",
+  "homepage": "https://github.com/Ivyrker/Wivy",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Ivyrker/Wivy.git"
+  },
   "type": "commonjs",
   "dependencies": {
     "hls.js": "^1.6.0"
   },
   "devDependencies": {
-    "electron": "^44.9.0"
+    "electron": "^44.9.0",
+    "electron-builder": "^26.18.0"
+  },
+  "build": {
+    "appId": "com.wivy.app",
+    "productName": "Wivy",
+    "icon": "icon.png",
+    "asar": false,
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer.js",
+      "soundcloud.js",
+      "vk.js",
+      "icons.js",
+      "index.html",
+      "styles.css",
+      "support.json",
+      "placeholder.svg",
+      "icon.png",
+      "icon.ico",
+      "fonts/**/*",
+      "languages/**/*",
+      "node_modules/hls.js/dist/**/*",
+      "package.json"
+    ],
+    "win": {
+      "icon": "icon.ico",
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false
+    },
+    "mac": {
+      "icon": "icon.png",
+      "category": "public.app-category.music"
+    },
+    "linux": {
+      "icon": "icon.png",
+      "target": [
+        "AppImage"
+      ],
+      "category": "Audio"
+    }
   }
 }

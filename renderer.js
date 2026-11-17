@@ -4,7 +4,7 @@
   const I = window.ICONS;
 
   /* ---------- Язык интерфейса ---------- */
-  // Английский встроен: английские фразы в коде служат ключами. Другие языки — файлы .json в папке locales:
+  // Английский встроен: английские фразы в коде служат ключами. Другие языки — файлы .json в папке languages:
   // { "name": "Русский", "code": "ru", "strings": { "English phrase": "перевод" } }. Фраза без перевода остаётся английской.
   const lang = { code: 'en', strings: {}, list: [] };
   const L = (s, ...args) => {
@@ -48,9 +48,9 @@
     document.documentElement.lang = lang.code;
     localize();
   }
-  async function loadLocales() {
+  async function loadLanguages() {
     let list = [];
-    try { if (window.api && window.api.listLocales) list = await window.api.listLocales(); } catch (e) { list = []; }
+    try { if (window.api && window.api.listLanguages) list = await window.api.listLanguages(); } catch (e) { list = []; }
     const seen = new Set(['en']);
     lang.list = (Array.isArray(list) ? list : []).filter((l) => l && l.code && l.strings && !seen.has(l.code) && seen.add(l.code));
     setLanguage(settings.lang);
@@ -169,19 +169,19 @@
   ];
 
   const SOURCE_MODES = {
-    icon:  { name: 'Icon on the left',      hint: 'An icon before the cover.' },
-    title: { name: 'Icon by the title', hint: 'A small icon before the title.' },
+    icon:  { name: 'Icon on the left',      hint: 'A small icon on the left of the cover.' },
+    title: { name: 'Icon by the title', hint: 'A small icon next to the title.' },
     label: { name: 'Label on the right',    hint: 'The platform name on the right.' },
   };
   // где показывать отметки платформы (внешний вид задаёт SOURCE_MODES)
   const SOURCE_SHOW = {
-    auto:   { name: 'Where several platforms are', hint: 'Marks appear only where tracks from two or more platforms are mixed: in "All tracks", the queue and the player.' },
-    always: { name: 'Always',                      hint: 'Marks are shown everywhere, even when only one platform is in sight.' },
-    off:    { name: 'Hidden',                      hint: 'No platform marks anywhere.' },
+    auto:   { name: 'Where platforms mix', hint: 'Only where tracks from several platforms mix: "All tracks", the queue and the player.' },
+    always: { name: 'Always',                      hint: 'On every track, even when only one platform is in view.' },
+    off:    { name: 'Hidden',                      hint: 'No platform marks at all.' },
   };
 
   /* ---------- Настройки (сохраняются между запусками) ---------- */
-  const STORE_KEY = 'music-player-settings';
+  const STORE_KEY = 'wivy-settings';
   // tint — цвет оформления (null = без цвета); textColor — 'auto' | 'white' | 'black' | id оттенка
   const DEFAULTS = {
     theme: 'dark', tint: null, sat: 80, textColor: 'auto', textSat: 70, sourceMode: 'icon', sourceShow: 'auto',
@@ -317,7 +317,7 @@
 
   // Замок у трека (lock): 'drm' — только защищённые потоки, 'region' — закрыт для вашего региона или аккаунта.
   // SoundCloud сообщает об этом заранее, VK только при попытке играть, поэтому выясненное запоминаем между запусками.
-  const LOCKS_KEY = 'music-player-locks';
+  const LOCKS_KEY = 'wivy-locks';
   let lockStore = {};
   try { lockStore = JSON.parse(localStorage.getItem(LOCKS_KEY)) || {}; } catch (e) { lockStore = {}; }
   const trackKey = (src, t) => `${src}:${t.scId || t.vkId}`;
@@ -355,7 +355,7 @@
   const regVkPlaylists = (list) => list.forEach((e) => { const k = vkPlKey(e); if (k) vkPlaylistMeta.set(k, e); });
 
   // Число треков плейлистов VK, полученное отдельными запросами: на странице списка его нет, а раздел «Плейлисты» отдаёт только первые 20.
-  const VK_COUNTS_KEY = 'music-player-vk-counts';
+  const VK_COUNTS_KEY = 'wivy-vk-counts';
   let vkCounts = {};
   try { vkCounts = JSON.parse(localStorage.getItem(VK_COUNTS_KEY)) || {}; } catch (e) { vkCounts = {}; }
   const saveVkCounts = () => { try { localStorage.setItem(VK_COUNTS_KEY, JSON.stringify(vkCounts)); } catch (e) { /* ничего */ } };
@@ -366,7 +366,7 @@
   // likeStore хранит только то, что ещё не подтвердилось: ждёт ответа сервера, а затем перезагрузки списка. Принял сервис, и запись исчезает
   // (список уже говорит то же самое); отказал, и лайк откатывается с сообщением. Исключение — платформы, у которых в api нет метода like:
   // их лайки живут только в приложении (local: true) и сохраняются между запусками.
-  const LIKES_KEY = 'music-player-likes';
+  const LIKES_KEY = 'wivy-likes';
   let likeStore = {};   // ключ -> { on, at, track, sent, local }
   try {
     const raw = JSON.parse(localStorage.getItem(LIKES_KEY)) || {};
@@ -387,7 +387,7 @@
   const likeApi = (src) => { const s = SVCS[src]; const api = s ? s.api() : null; return api && api.like ? api : null; };
 
   // Лайки плейлистов и альбомов: хранятся в приложении; у SoundCloud ещё и отправляются в аккаунт
-  const PL_LIKES_KEY = 'music-player-pl-likes';
+  const PL_LIKES_KEY = 'wivy-pl-likes';
   let plLikes = {};   // ключ -> { on, at, pl }
   try { plLikes = JSON.parse(localStorage.getItem(PL_LIKES_KEY)) || {}; } catch (e) { plLikes = {}; }
   const savePlLikes = () => { try { localStorage.setItem(PL_LIKES_KEY, JSON.stringify(plLikes)); } catch (e) { /* ничего */ } };
@@ -421,7 +421,7 @@
         if (res && res.ok) return;
         if (had) plLikes[k] = had; else delete plLikes[k];   // аккаунт не принял: возвращаем прежнее
         savePlLikes();
-        s.error = L('Could not sync the like with {0}: {1}', platform(s.id).name, scErrorText(res && res.error));
+        s.error = L('Couldn’t sync that like with {0}: {1}', platform(s.id).name, scErrorText(res && res.error));
         renderContent();
       }).catch(() => {});
     }
@@ -450,7 +450,7 @@
     }
     if (same()) delete likeStore[k];   // сервис не принял: возвращаем то, что в его списке
     if (r && r.auth) { scForget(s); scSchedule(); s.error = L(TXT[s.id].expired); updatePlayer(); return scRerender(); }
-    s.error = L('Could not sync the like with {0}: {1}', platform(s.id).name, scErrorText(r && r.error));
+    s.error = L('Couldn’t sync that like with {0}: {1}', platform(s.id).name, scErrorText(r && r.error));
     updatePlayer();
     scRerender();
   }
@@ -474,7 +474,7 @@
       delete likeStore[k];
       settled++;
     }
-    if (notApplied) s.error = L('{0} did not apply {1} like change(s). The list now shows what is on the service.', platform(id).name, notApplied);
+    if (notApplied) s.error = L('{0} didn’t accept {1} like change(s). Your list now matches the service.', platform(id).name, notApplied);
     return settled;
   }
 
@@ -733,7 +733,7 @@
 
   /* ---------- Профиль над кнопкой настроек: аккаунты и синхронизация ---------- */
   const connectedSvcs = () => Object.values(SVCS).filter((s) => s.connected);
-  const PROF_IMG_KEY = 'music-player-profile-img';
+  const PROF_IMG_KEY = 'wivy-profile-img';
   let profileImg = '';
   try { profileImg = localStorage.getItem(PROF_IMG_KEY) || ''; } catch (e) { profileImg = ''; }
   // имя и картинка: приоритетная платформа первой, остальные подменяют, если у неё чего-то нет; своя картинка важнее всех
@@ -761,9 +761,9 @@
     const info = profileInfo();
     const letter = info ? info.name.trim().charAt(0).toUpperCase() : '?';
     return `<div class="choices">
-        ${profileChoice('auto', 'Automatic', 'The platform you are viewing, then the others.')}
-        ${profileChoice('soundcloud', 'SoundCloud', 'Its name and picture come first.')}
-        ${profileChoice('vk', 'VK Music', 'Its name and picture come first.')}
+        ${profileChoice('auto', 'Automatic', 'Follows the platform you are viewing, then the others.')}
+        ${profileChoice('soundcloud', 'SoundCloud', 'Uses its name and picture first.')}
+        ${profileChoice('vk', 'VK Music', 'Uses its name and picture first.')}
       </div>
       <div class="profile-pick">
         <span class="avatar big">${profileImg ? `<img src="${esc(profileImg)}" alt="">` : `<b>${esc(letter)}</b>`}</span>
@@ -928,13 +928,13 @@
 
   // трек, у которого есть только защищённый поток: показываем замок и не пытаемся играть
   const locked = (t) => !!(t && t.lock);
-  const LOCK_TITLE = { drm: 'Protected (DRM): cannot be played here', region: 'Not available in your region' };
+  const LOCK_TITLE = { drm: 'Protected (DRM): can’t play here', region: 'Not available in your region' };
   // трек найден у нескольких сервисов: значки остальных после названия (t.alt собирает dedupTracks)
   const altIcons = (t) => (t.alt && t.alt.length ? t.alt.map((a) => srcIcon(platform(a.source), 'sm')).join('') : '');
   const lockIcon = (t) => (t.lock ? `<span class="lock-ico" title="${esc(L(LOCK_TITLE[t.lock] || LOCK_TITLE.region))}">${I.lock}</span>` : '');
   const lockedMsg = (t) => (t && t.lock === 'region'
-    ? L('This track is not available in your region.')
-    : L('This track is protected (DRM) and cannot be played here. Open it on SoundCloud.'));
+    ? L('This track isn’t available in your region.')
+    : L('This track is DRM-protected, so it can’t play here. Open it on SoundCloud instead.'));
 
   const trackRow = (t, key) => {
     const src = platform(t.source);
@@ -980,7 +980,7 @@
     const loading = list.find((s) => s.loading);
     const text = id === 'all' ? L('No platforms are connected yet.')
       : loading ? L(TXT[id].loading)
-      : L('The {0} account is not connected yet.', platform(id).name);
+      : L('{0} isn’t connected yet.', platform(id).name);
     let btn = `<button class="btn primary" disabled title="${L('Soon')}">${L('Connect account')}</button>`;
     if (list.length) {
       btn = loading ? '' : list.map((s) => s.busy
@@ -1056,7 +1056,7 @@
         <div class="section">
           <div class="section-title">${L('Following')}</div>
           ${data.following.length ? `<div class="grid wrap">${data.following.map(userCard).join('')}</div>`
-            : state.platform === 'vk' ? `<div class="notice"><p><b>${L('Followed artists')}</b>${esc(L('VK Music does not give the app your followed artists yet. Artists from your library are shown on the Home page.'))}</p></div>` : emptyHtml()}
+            : state.platform === 'vk' ? `<div class="notice"><p><b>${L('Followed artists')}</b>${esc(L('VK Music doesn’t share your followed artists with Wivy yet. Artists from your library appear on Home instead.'))}</p></div>` : emptyHtml()}
         </div>`;
     }
   }
@@ -1168,10 +1168,10 @@
     const has = (name) => fonts.list.some((f) => f.family === name);
     if (settings.font === 'system') return SYSTEM_STACK;
     if (settings.font !== 'auto' && has(settings.font)) {
-      return quote(settings.font) + ', ' + (/mono|pixel|gothic/i.test(settings.font) ? MONO_STACK : SYSTEM_STACK);
+      return quote(settings.font) + ', ' + (/mono|pixel|gothic|press start|code/i.test(settings.font) ? MONO_STACK : SYSTEM_STACK);
     }
     // «Авто»: первый моноширинный шрифт из папки, как в ретро-оформлении
-    const mono = fonts.list.find((f) => /mono/i.test(f.family));
+    const mono = fonts.list.find((f) => /plex mono/i.test(f.family)) || fonts.list.find((f) => /mono/i.test(f.family));
     return (mono ? quote(mono.family) + ', ' : '') + MONO_STACK;
   }
 
@@ -1201,87 +1201,87 @@
   // единый список настроек: из него берутся и заголовки на страницах, и поиск
   const DEFS = [
     { id: 'acc-platforms', section: 'accounts', sub: 'platforms', title: 'Connected platforms',
-      desc: 'Connect your music accounts. SoundCloud and VK Music sign in through a window inside the app; YouTube Music and Yandex Music will be added later.' },
+      desc: 'Sign in to SoundCloud or VK Music in a window inside Wivy. YouTube Music and Yandex Music are coming later.' },
     { id: 'acc-sync', section: 'accounts', sub: 'sync', title: 'Library auto-update',
-      desc: 'Keeps your library fresh: while the app is open, it checks SoundCloud in the background for new liked tracks, playlists and follows.' },
+      desc: 'While Wivy is open, it quietly checks your connected platforms for new likes, playlists and follows.' },
     { id: 'acc-profile', section: 'accounts', sub: 'profile', title: 'Name and picture',
-      desc: 'Which platform supplies the name and picture of the profile icon above the settings button, or use your own picture (it is stretched to fill the icon).' },
+      desc: 'Choose which platform provides the name and picture for the profile icon above the Settings button, or use your own picture.' },
     { id: 'acc-sync-every', section: 'accounts', sub: 'sync', title: 'Update interval',
-      desc: 'How often the app checks SoundCloud for changes.' },
+      desc: 'How often Wivy checks your platforms for changes.' },
     { id: 'priv-local', section: 'privacy', sub: null, title: 'Local data',
-      desc: 'Settings, theme and volume are stored only on this computer and are never sent anywhere.' },
+      desc: 'Settings, library cache and sign-in sessions are stored only on this computer. Wivy talks only to the platforms you connect.' },
     { id: 'priv-reset', section: 'privacy', sub: null, title: 'Reset settings',
-      desc: 'Return the theme, font, notifications and all other options to their defaults.' },
-    { id: 'notif-track', section: 'notifications', sub: null, title: 'Track change notification',
-      desc: 'Show a system notification with the title and artist when a new track starts.' },
-    { id: 'notif-unfocused', section: 'notifications', sub: null, title: 'Only when the window is in the background',
-      desc: 'Do not show notifications while the app window is active.' },
+      desc: 'Restores every option to its default and removes your wallpaper. Your accounts and library are not affected.' },
+    { id: 'notif-track', section: 'notifications', sub: null, title: 'Track notifications',
+      desc: 'Show the title and artist in a system notification when a new track starts.' },
+    { id: 'notif-unfocused', section: 'notifications', sub: null, title: 'Only when Wivy is in the background',
+      desc: 'Skip notifications while the Wivy window is in focus.' },
     { id: 'notif-silent', section: 'notifications', sub: null, title: 'Silent notifications',
-      desc: 'Turn off the system sound when a notification appears.' },
+      desc: 'No system sound when a notification appears.' },
     { id: 'notif-test', section: 'notifications', sub: null, title: 'Test notification',
-      desc: 'Show a test notification with the current settings.' },
+      desc: 'Send a test notification with your current settings.' },
     { id: 'play-auto', section: 'playback', sub: null, title: 'Autoplay',
-      desc: 'Start the next track as soon as the current one ends. When off, playback stops.' },
+      desc: 'Play the next track when the current one ends. When off, playback stops after the track.' },
     { id: 'play-volume', section: 'playback', sub: null, title: 'Remember volume',
-      desc: 'Keep the volume slider position between launches.' },
+      desc: 'Start at the volume you left off at.' },
     { id: 'ap-theme', section: 'appearance', sub: 'theme', title: 'Theme',
-      desc: 'From light to dark: drag the slider or click a name.' },
+      desc: 'From light to dark. Drag the slider or click a name.' },
     { id: 'ap-tint', section: 'appearance', sub: 'theme', title: 'Accent color',
-      desc: 'Tints the background and accents. With no color the interface stays neutral and the accent comes from the platform.' },
+      desc: 'Tints surfaces and accents. With no color, the interface stays neutral and takes its accent from the current platform.' },
     { id: 'ap-bg', section: 'appearance', sub: 'theme', title: 'Background color',
-      desc: 'The color of the background itself: it shows behind the wallpaper and under transparent panels, and does not recolor the panels. It has its own saturation, brightness depends on the theme.' },
+      desc: 'The color behind the wallpaper and transparent panels. The panels themselves are not recolored. Saturation is separate; brightness follows the theme.' },
     { id: 'ap-text', section: 'appearance', sub: 'theme', title: 'Text color',
       desc: 'The main color of text and icons. "Auto" follows the theme.' },
     { id: 'ap-outline-color', section: 'appearance', sub: 'theme', title: 'Outline color',
-      desc: 'The color of the thin outline around text and icons. Its strength and style are set in "Text and icon outline" under Wallpaper and transparency.' },
+      desc: 'The color of the thin outline around text and icons. Strength and style are in "Text and icon outline" under Wallpaper and transparency.' },
     { id: 'ap-font', section: 'appearance', sub: 'font', title: 'Font',
-      desc: 'The list comes from the fonts folder in the project folder: put a font file or folder there and it will appear here.' },
+      desc: 'Fonts come from the fonts folder next to the app (.woff2, .woff, .ttf, .otf). Add a file or folder, then refresh the list.' },
     { id: 'ap-fontsize', section: 'appearance', sub: 'font', title: 'Font size',
-      desc: 'The base text size of the interface; other sizes scale proportionally.' },
+      desc: 'Base text size; other text sizes scale with it. To resize everything, use Interface scale.' },
     { id: 'ap-wallpaper', section: 'appearance', sub: 'wall', title: 'Wallpaper',
-      desc: 'Your own image file for the app background (PNG, JPG, WebP, GIF, BMP, AVIF). The file is copied to the app data folder, so the original can be deleted.' },
+      desc: 'Use your own image as the background (PNG, JPG, WebP, GIF, BMP or AVIF). Wivy keeps a copy, so you can delete the original.' },
     { id: 'ap-wp-fit', section: 'appearance', sub: 'wall', title: 'Wallpaper placement',
-      desc: 'Stretch to fill, fit without distortion, fill the window with cropping, original size or tiled. Below is the position: corners, edges and center.' },
+      desc: 'Stretch, fit, fill, original size or tiled, plus where the picture sits: a corner, an edge or the center.' },
     { id: 'ap-wp-blur', section: 'appearance', sub: 'wall', title: 'Wallpaper blur',
-      desc: 'Blurs the picture so the text on top is easier to read.' },
+      desc: 'Softens the picture so text on top is easier to read.' },
     { id: 'ap-glass', section: 'appearance', sub: 'wall', title: 'Glass effect',
-      desc: 'Panels slightly blur and distort the wallpaper under them. Visible when panels are semi-transparent. 0 turns the effect off.' },
+      desc: 'Panels blur and slightly bend the wallpaper beneath them. Visible when panels are semi-transparent. 0 turns it off.' },
     { id: 'ap-outline', section: 'appearance', sub: 'wall', title: 'Text and icon outline',
-      desc: 'A thin outline so text and icons do not get lost on busy wallpapers: strength, style and whether it applies to icons. Its color is under Theme and colors. 0 turns the outline off.' },
+      desc: 'A thin outline that keeps text and icons readable on busy wallpapers. Set its strength, style and whether icons get it; the color is under Theme and colors. 0 turns it off.' },
     { id: 'ap-opacity', section: 'appearance', sub: 'wall', title: 'Element transparency',
-      desc: 'A separate slider for every element: title bar, side panel, window background (the top bar shares it), main canvas, cards and rows, buttons, fields and headings, player, queue window, settings window, scrollbars and lines. Elements are independent: a card can be transparent even if the canvas is not. 100% is opaque (the default), 0% is fully transparent.' },
+      desc: 'A separate slider for every part of the interface: title bar, side panel, window background (shared with the top bar), main canvas, cards and rows, buttons, fields and headings, player, queue, settings, scrollbars and lines. 100% is opaque (the default), 0% is fully transparent.' },
     { id: 'ap-pattern', section: 'appearance', sub: 'panels', title: 'Panel pattern',
-      desc: 'A background pattern on the side panel, title bar and player: dots, grid, crosses or none. The slider sets how visible it is.' },
+      desc: 'A subtle pattern on the side panel, title bar and player: dots, grid, crosses or none. The slider sets how visible it is.' },
     { id: 'ap-marks', section: 'appearance', sub: 'panels', title: 'Track source',
-      desc: 'How to mark the platform on tracks in "All tracks", in the queue and in the player at the bottom.' },
+      desc: 'How a track shows which platform it comes from: in "All tracks", the queue and the player.' },
     { id: 'ap-marks-show', section: 'appearance', sub: 'panels', title: 'Show the platform',
-      desc: 'Where the platform marks appear: only where several platforms are mixed (as now), always, or nowhere.' },
+      desc: 'Where platform marks appear: only where platforms mix (the default), everywhere, or nowhere.' },
     { id: 'ap-scale', section: 'appearance', sub: 'font', title: 'Interface scale',
-      desc: 'Enlarges or shrinks the whole interface: text, icons and spacing. Applied when you release the slider. The font size above changes only the text.' },
+      desc: 'Scales the whole interface: text, icons and spacing. Applies when you release the slider. Font size above changes text only.' },
     { id: 'lang-select', section: 'language', sub: null, title: 'Interface language',
-      desc: 'English is built in. Other languages come from .json files in the locales folder: put a file there, click "Refresh list" and the language will appear in the list.' },
+      desc: 'English is built in. Other languages are .json files in the languages folder: add one, press "Refresh list" and it shows up here.' },
     { id: 'lang-custom', section: 'language', sub: null, title: 'Your own translation',
-      desc: 'Copy ru.json, translate the values to the right of the colon (do not change the English keys on the left), change name and code, and save the file in the same folder. Phrases without a translation stay in English.' },
+      desc: 'Copy ru.json, translate the text to the right of each colon (leave the English keys on the left as they are), change "name" and "code", and save it in the same folder. Anything left untranslated stays in English.' },
     { id: 'int-rpc', section: 'integrations', sub: null, title: 'Discord status',
-      desc: 'Show the track that is playing in your Discord profile.' },
+      desc: 'Show what you are listening to in your Discord profile.' },
     { id: 'int-lastfm', section: 'integrations', sub: null, title: 'Last.fm',
-      desc: 'Send played tracks to Last.fm (scrobbling).' },
+      desc: 'Scrobble the tracks you play to Last.fm.' },
     { id: 'int-media', section: 'integrations', sub: null, title: 'Media keys and system player',
-      desc: 'Control playback with keyboard keys and from the Windows panel.' },
+      desc: 'Control playback with your keyboard media keys and the system media panel.' },
     { id: 'keys-list', section: 'hotkeys', sub: null, title: 'Hotkeys',
-      desc: 'Space: pause and play. Alt+← and Alt+→: back and forward through sections. Esc: close settings.' },
+      desc: 'Space plays and pauses, / jumps to search, Alt+← and Alt+→ move back and forward, Esc closes settings.' },
     { id: 'sup-author', section: 'support', sub: 'author', title: 'Support the author',
-      desc: 'If the player is useful to you, support its development: with a donation, a subscription or any other way.' },
+      desc: 'If Wivy is useful to you, you can support its development with a donation or a subscription.' },
     { id: 'sup-share', section: 'support', sub: 'more', title: 'Tell your friends',
-      desc: 'Copy a short message recommending the player to send to your friends.' },
+      desc: 'Copy a short message about Wivy to send to a friend.' },
     { id: 'sup-feedback', section: 'support', sub: 'more', title: 'Ideas and bug reports',
-      desc: 'Tell the author what to improve or what does not work.' },
-    { id: 'about-app', section: 'about', sub: null, title: 'About the app',
-      desc: 'Music Player: one player for SoundCloud, VK Music, YouTube Music and Yandex Music.' },
+      desc: 'Suggest an improvement or report something that is not working.' },
+    { id: 'about-app', section: 'about', sub: null, title: 'About Wivy',
+      desc: 'A customizable player for your music services. SoundCloud and VK Music work today; YouTube Music and Yandex Music are on the way.' },
     { id: 'about-info', section: 'about', sub: null, title: 'System information',
-      desc: 'App, Electron, Chromium and system versions. Copy them and attach them to a bug report.' },
+      desc: 'App, Electron, Chromium and system versions. Copy them into a bug report.' },
     { id: 'about-fonts', section: 'about', sub: null, title: 'Fonts and licenses',
-      desc: 'The bundled fonts IBM Plex Mono, Manrope and DotGothic16 are distributed under the SIL Open Font License; the license texts are next to the fonts.' },
+      desc: 'The bundled fonts (IBM Plex Mono, Manrope, DotGothic16, JetBrains Mono, Fira Code, Inter, Nunito, Comfortaa, Unbounded, Pixelify Sans and Press Start 2P) are used under the SIL Open Font License. License texts sit next to the font files.' },
   ];
   const def = (id) => DEFS.find((d) => d.id === id);
   const secOf = (id) => NAV.flatMap((g) => g.items).find((x) => x.id === id);
@@ -1434,7 +1434,7 @@
         <button class="btn" data-action="open-fonts">${L('Open fonts folder')}</button>
         <button class="btn" data-action="reload-fonts">${L('Refresh list')}</button>
       </div>
-      ${fonts.list.length ? '' : `<p class="setting-desc">${L('The fonts folder was not found or is empty, so only system fonts are available.')}</p>`}`;
+      ${fonts.list.length ? '' : `<p class="setting-desc">${L('The fonts folder is missing or empty, so only the system font is available.')}</p>`}`;
   }
 
   function fontSizeControls() {
@@ -1462,13 +1462,13 @@
       <select class="select" id="langSelect" aria-label="${L('Interface language')}">
         ${opts.map((o) => `<option value="${esc(o.code)}" ${o.code === lang.code ? 'selected' : ''}>${esc(o.name)}</option>`).join('')}
       </select>
-      ${lang.list.length ? '' : `<p class="setting-desc">${L('The locales folder was not found or has no languages, so only English is available.')}</p>`}`;
+      ${lang.list.length ? '' : `<p class="setting-desc">${L('The languages folder is missing or empty, so only English is available.')}</p>`}`;
   }
 
   const customLangControls = () => `
     <div class="btn-row" style="margin-top:0">
-      <button class="btn" data-action="open-locales">${L('Open languages folder')}</button>
-      <button class="btn" data-action="reload-locales">${L('Refresh list')}</button>
+      <button class="btn" data-action="open-languages">${L('Open languages folder')}</button>
+      <button class="btn" data-action="reload-languages">${L('Refresh list')}</button>
     </div>`;
 
   const platformRows = () => PLATFORMS.filter((p) => p.id !== 'all').map((p) => {
@@ -1503,10 +1503,19 @@
   const hotkeys = () => `
     <dl class="keys">
       <div><dt><kbd>${L('Space')}</kbd></dt><dd>${L('Pause and play')}</dd></div>
-      <div><dt><kbd>Alt</kbd> + <kbd>←</kbd></dt><dd>${L('Back through sections')}</dd></div>
-      <div><dt><kbd>Alt</kbd> + <kbd>→</kbd></dt><dd>${L('Forward through sections')}</dd></div>
-      <div><dt><kbd>Esc</kbd></dt><dd>${L('Close settings')}</dd></div>
+      <div><dt><kbd>/</kbd></dt><dd>${L('Jump to search')}</dd></div>
+      <div><dt><kbd>Alt</kbd> + <kbd>←</kbd></dt><dd>${L('Go back')}</dd></div>
+      <div><dt><kbd>Alt</kbd> + <kbd>→</kbd></dt><dd>${L('Go forward')}</dd></div>
+      <div><dt><kbd>Esc</kbd></dt><dd>${L('Close settings or clear the search')}</dd></div>
+      <div><dt><kbd>${L('Mouse side buttons')}</kbd></dt><dd>${L('Go back and forward')}</dd></div>
     </dl>`;
+
+  // значок и название приложения в начале раздела «О программе»
+  const aboutBrand = () => `
+    <div class="about-brand">
+      <img class="about-logo" src="icon.png" alt="" draggable="false">
+      <div><b>Wivy</b>${supportCfg.author ? `<small>${L('Author:')} ${esc(supportCfg.author)}</small>` : ''}</div>
+    </div>`;
 
   const versions = () => {
     const rows = [[L('Version'), info.version], ['Electron', info.electron], ['Chromium', info.chrome], ['Node.js', info.node],
@@ -1526,9 +1535,9 @@
       <div class="row">
         <span class="badge heart">${I.heartFill}</span>
         <div class="grow">${esc(L(l.title))}<small>${esc(L(l.note))}</small></div>
-        ${l.url ? `<button class="btn primary" data-open="${i}">${L('Open')}</button>` : `<span class="soon">${L('Link not set')}</span>`}
+        ${l.url ? `<button class="btn primary" data-open="${i}">${L('Open')}</button>` : `<span class="soon">${L('No link yet')}</span>`}
       </div>`).join('')
-      : `<p class="setting-desc">${L('No links yet: the author can add them in support.json.')}</p>`;
+      : `<p class="setting-desc">${L('The author has not added any links yet.')}</p>`;
     return msg + by + rows;
   }
 
@@ -1622,12 +1631,12 @@
         const noFeedback = !supportCfg.feedback;
         inner = wrap('author', blockRow('sup-author', supportAuthorHtml()))
               + wrap('more', buttonRow('sup-share', `<button class="btn" data-action="share">${L('Copy text')}</button>`)
-                           + buttonRow('sup-feedback', (noFeedback ? `<span class="soon">${L('Link not set')}</span>` : '')
+                           + buttonRow('sup-feedback', (noFeedback ? `<span class="soon">${L('No link yet')}</span>` : '')
                                      + `<button class="btn" data-action="open-feedback" ${noFeedback ? 'disabled' : ''}>${L('Write')}</button>`));
         break;
       }
       case 'about':
-        inner = blockRow('about-app', versions()) + buttonRow('about-info', `<button class="btn" data-action="copy-info">${L('Copy')}</button>`) + infoRow('about-fonts');
+        inner = blockRow('about-app', aboutBrand() + versions()) + buttonRow('about-info', `<button class="btn" data-action="copy-info">${L('Copy')}</button>`) + infoRow('about-fonts');
         break;
       default: break;
     }
@@ -1780,7 +1789,7 @@
     if (!force && (!settings.notifyTrack || (settings.notifyUnfocused && document.hasFocus()))) return;
     try {
       if (Notification.permission === 'denied') return;
-      new Notification(t.title, { body: t.artist, silent: settings.notifySilent });
+      new Notification(t.title, { body: t.artist, icon: 'icon.png', silent: settings.notifySilent }); // значок Wivy в уведомлении
     } catch (e) { /* нет прав на уведомления */ }
   }
 
@@ -1824,20 +1833,20 @@
       }
       await resetSettings();
     } else if (a === 'test-notify') {
-      notify(current() || DATA.all.liked[0] || { title: 'Music Player', artist: L('Test notification') }, true);
+      notify(current() || DATA.all.liked[0] || { title: 'Wivy', artist: L('Test notification') }, true);
     } else if (a === 'copy-info') {
-      const lines = [`Music Player ${info.version || ''}`.trim(), `Electron ${info.electron || '?'}, Chromium ${info.chrome || '?'}, Node ${info.node || '?'}`,
+      const lines = [`Wivy ${info.version || ''}`.trim(), `Electron ${info.electron || '?'}, Chromium ${info.chrome || '?'}, Node ${info.node || '?'}`,
                      `${L('System')}: ${info.platform || '?'} ${info.arch || ''}`.trim(), `${L('Theme')}: ${settings.theme}, ${L('font')}: ${settings.font}, ${settings.fontSize} px`];
       try { await navigator.clipboard.writeText(lines.join('\n')); btn.textContent = L('Copied'); } catch (e) { btn.textContent = L('Failed'); }
       setTimeout(() => { if (btn.isConnected) btn.textContent = L('Copy'); }, 1500);
     } else if (a === 'share') {
-      const text = L(supportCfg.share || 'Try Music Player: one player for SoundCloud, VK Music, YouTube Music and Yandex Music.');
+      const text = L(supportCfg.share || 'Try Wivy: a customizable music player that brings SoundCloud and VK Music together in one app.');
       try { await navigator.clipboard.writeText(text); btn.textContent = L('Copied'); } catch (e) { btn.textContent = L('Failed'); }
       setTimeout(() => { if (btn.isConnected) btn.textContent = L('Copy text'); }, 1500);
     } else if (a === 'open-feedback') {
       openSupportLink(supportCfg.feedback);
     } else if (a === 'wp-pick') {
-      try { if (window.api && window.api.pickWallpaper) wallpaper = await window.api.pickWallpaper(); } catch (e) { /* ничего */ }
+      try { if (window.api && window.api.pickWallpaper) wallpaper = await window.api.pickWallpaper({ title: L('Choose a wallpaper image'), filter: L('Images') }); } catch (e) { /* ничего */ }
       wp.bitmap = null;
       applyTheme();
       renderBody(true);
@@ -1857,10 +1866,10 @@
       saveSettings();
       applyScale();
       renderBody(true);
-    } else if (a === 'open-locales') {
-      try { if (window.api && window.api.openLocalesFolder) await window.api.openLocalesFolder(); } catch (e) { /* ничего */ }
-    } else if (a === 'reload-locales') {
-      await loadLocales();
+    } else if (a === 'open-languages') {
+      try { if (window.api && window.api.openLanguagesFolder) await window.api.openLanguagesFolder(); } catch (e) { /* ничего */ }
+    } else if (a === 'reload-languages') {
+      await loadLanguages();
       refreshLanguage();
     } else if (a === 'open-fonts') {
       try { if (window.api && window.api.openFontsFolder) await window.api.openFontsFolder(); } catch (e) { /* ничего */ }
@@ -2060,7 +2069,7 @@
     queueMulti = showMarks();
     renderQueuePlats();
     list.innerHTML = player.queue.length ? player.queue.map(queueRow).join('')
-      : `<div class="empty small">${esc(L('The queue is empty. Start playing a track.'))}</div>`;
+      : `<div class="empty small">${esc(L('The queue is empty. Play a track to fill it.'))}</div>`;
     list.scrollTop = top;
     // при смене трека или открытии панели играющий трек подводим в поле зрения; прокручиваем только сам список
     if (reveal || (player.index >= 0 && player.index !== prevIndex)) {
@@ -2215,7 +2224,7 @@
     if (locked(player.queue[target])) {
       if (player.advance) {
         target = findPlayable(target, dir);
-        if (target < 0) return stopWith(L('None of these tracks can be played here: they are protected or not available in your region.'));
+        if (target < 0) return stopWith(L('None of these tracks can play here: they are protected or unavailable in your region.'));
       } else {
         player.index = target;
         player.elapsed = 0;
@@ -2305,7 +2314,7 @@
   function audioFail(message, auth, t) {
     player.loading = false;
     player.playing = false;
-    player.error = L('Could not play this track: {0}', String(message || ''));
+    player.error = L('Couldn’t play this track: {0}', L(String(message || '')));
     if (auth) {
       const s = SVCS[(t && t.source) || 'soundcloud'] || sc;
       scForget(s);
@@ -2407,7 +2416,7 @@
   /* ---------- Подключаемые сервисы: SoundCloud и VK Музыка ---------- */
   // Вход и запросы выполняет основной процесс (soundcloud.js, vk.js). Сюда приходят только готовые списки,
   // поэтому у обоих сервисов одна и та же логика: вход, загрузка, фоновое обновление, выход. Различаются тексты и звук.
-  const makeSvc = (id, apiName) => ({ id, api: () => (window.api && window.api[apiName]) || null, cache: `music-player-${id}-cache`,
+  const makeSvc = (id, apiName) => ({ id, api: () => (window.api && window.api[apiName]) || null, cache: `wivy-${id}-cache`,
                                       connected: false, busy: false, loading: false, syncing: false, error: '', user: null, mode: null, sig: '' });
   const sc = makeSvc('soundcloud', 'soundcloud');
   const vk = makeSvc('vk', 'vk');
@@ -2418,7 +2427,7 @@
   };
   const LIB_V = { soundcloud: 5, vk: 5 };   // версия формата библиотеки: у кэша старой версии нет полей, нужных страницам и замкам
   const scApi = () => sc.api();
-  const scErrorText = (e) => String(e || '');
+  const scErrorText = (e) => L(String(e || ''));   // сообщения основного процесса тоже можно перевести в файле языка
 
   function scRerender() {
     renderRail();
@@ -2445,7 +2454,7 @@
   // Экран загрузки при запуске: пока сервисы, к которым вы входили раньше, проверяют вход и подтягивают библиотеку.
   // Часть входов оживает только со второй попытки, поэтому при отказе приложение повторяет запрос и, если разрешено, входит заново само.
   const bootUi = { rows: {}, done: false };
-  const BOOT_TXT = { check: 'Checking sign-in…', relogin: 'Signing in again…', load: 'Loading your library…', ok: 'Ready', fail: 'Could not load, will retry in the background', out: 'Signed out' };
+  const BOOT_TXT = { check: 'Checking sign-in…', relogin: 'Signing in again…', load: 'Loading your library…', ok: 'Ready', fail: 'Couldn’t load. Will retry in the background.', out: 'Signed out' };
   function bootRender() {
     const el = $('bootList');
     if (!el) return;
@@ -2572,7 +2581,7 @@
       s.error = L(TXT[s.id].expired);
       scRerender();
     } else if (!quiet) {
-      s.error = L('Could not load the library: {0}', scErrorText(r && r.error));
+      s.error = L('Couldn’t load your library: {0}', scErrorText(r && r.error));
       scRerender();
     }
     if (s.again) { s.again = false; scRefresh(s, true); }
@@ -2638,7 +2647,7 @@
     track: async (ref) => {
       const m = /audio(-?\d+_\d+)/.exec(ref.url || '');
       const t = m && (vkTrackIndex.get(m[1]) || vkLibTracks().find((x) => x.vkId === m[1]));
-      if (!t) return { ok: false, error: L('This track is not available any more. Try searching for it again.') };
+      if (!t) return { ok: false, error: L('This track is no longer available. Try searching for it again.') };
       const mine = artistParts(t.artist);
       const more = [...vkTrackIndex.values()].filter((x) => x.vkId !== t.vkId && artistParts(x.artist).some((p) => mine.includes(p))).slice(0, 20);
       return { ok: true, data: { track: { ...t, artBig: t.art, desc: '', tags: [], reposts: 0, comments: 0 }, related: more, relatedTitle: 'More by this artist' } };
@@ -2649,7 +2658,7 @@
       const key = ((/artist\/([A-Za-z0-9_.-]{1,64})/.exec(ref.url || '')) || [])[1] || '';
       const api = vk.api();
       if (ref.sec) {   // раздел страницы исполнителя: все треки, релизы, синглы, альбомы
-        if (!key || !api || !api.artistSection) return { ok: false, error: L('This page is not available for this platform yet.') };
+        if (!key || !api || !api.artistSection) return { ok: false, error: L('This page isn’t available for this platform yet.') };
         const rs = await api.artistSection({ slug: key, name }, ref.sec);
         if (rs && rs.ok) regVkPlaylists([...rs.data.albums, ...rs.data.playlists]);
         return rs;
@@ -2712,7 +2721,7 @@
     if (hit && (hit.status === 'loading' || (hit.status === 'ok' && !force && Date.now() - hit.at < 5 * 60 * 1000))) return;
     const api = entityApi(v.src);
     const call = api && { track: api.track, artist: api.user, playlist: api.playlist }[v.kind];
-    if (!call) { pages.set(key, { status: 'error', error: L('This page is not available for this platform yet.') }); return; }
+    if (!call) { pages.set(key, { status: 'error', error: L('This page isn’t available for this platform yet.') }); return; }
     pages.set(key, { status: 'loading' });
     if (pages.size > 60) pages.delete(pages.keys().next().value);
     let r;
@@ -2721,7 +2730,7 @@
       try { const data = buildPage(v.kind, r.data, v.src); if (v.sec) { data.sec = v.sec; data.title = `${data.title} · ${L(VK_SECTIONS[v.sec])}`; } pages.set(key, { status: 'ok', data, at: Date.now() }); }
       catch (e) { pages.set(key, { status: 'error', error: String((e && e.message) || e) }); }
     } else {
-      pages.set(key, { status: 'error', error: String((r && r.error) || 'Unknown error') });
+      pages.set(key, { status: 'error', error: L(String((r && r.error) || 'Unknown error')) });
       if (r && r.auth) { const s = SVCS[v.src] || sc; scForget(s); scSchedule(); s.error = L(TXT[s.id].expired); }
     }
     if (viewKey(state.view) === key) { renderTitlebar(); scRerender(); }
@@ -2941,7 +2950,7 @@
     visibleTracks = [];
     if (!pg || pg.status === 'loading') { el.innerHTML = `<div class="empty">${L('Loading…')}</div>`; return; }
     if (pg.status === 'error') {
-      el.innerHTML = `<div class="notice"><p><b>${L('Could not open this page')}</b>${esc(pg.error)}</p>
+      el.innerHTML = `<div class="notice"><p><b>${L('Couldn’t open this page')}</b>${esc(pg.error)}</p>
         <div class="btn-row"><button class="btn" data-act="retry">${L('Try again')}</button></div></div>`;
       return;
     }
@@ -2995,7 +3004,7 @@
       if (remoteSearch.cache.size > 30) remoteSearch.cache.delete(remoteSearch.cache.keys().next().value);
       remoteSearch.by[src] = { status: 'ok', entry, error: '', auth: false, more: false };
     } else {
-      remoteSearch.by[src] = { status: 'error', entry: null, error: r && r.auth ? L(TXT[searchSources[src].svc.id].expired) : String((r && r.error) || 'Unknown error'), auth: !!(r && r.auth), more: false };
+      remoteSearch.by[src] = { status: 'error', entry: null, error: r && r.auth ? L(TXT[searchSources[src].svc.id].expired) : L(String((r && r.error) || 'Unknown error')), auth: !!(r && r.auth), more: false };
       if (r && r.auth) { const s = searchSources[src].svc; scForget(s); scSchedule(); s.error = L(TXT[s.id].expired); }   // выходит из системы только этот сервис
     }
     renderSoon();
@@ -3178,7 +3187,7 @@
     }
     const loading = r.srcs.filter((s) => r.by[s].status === 'loading').map((s) => platform(s).name);
     const status = loading.length ? L('Searching {0}…', loading.join(', ')) : '';
-    const dur = [['any', 'Any'], ['short', '< 2 min'], ['mid', '2–5 min'], ['long', '5–10 min'], ['xl', '> 10 min']].map(([k, label]) => chip('dur:' + k, k === 'any' ? L(label) : label, f.dur === k)).join('');
+    const dur = [['any', 'Any'], ['short', 'Under 2 min'], ['mid', '2–5 min'], ['long', '5–10 min'], ['xl', 'Over 10 min']].map(([k, label]) => chip('dur:' + k, L(label), f.dur === k)).join('');
     const lib = [['any', 'Any'], ['in', 'Only in my library'], ['out', 'Not in my library']].map(([k, label]) => chip('lib:' + k, L(label), f.lib === k)).join('');
     const sorts = [['relevance', 'Relevance'], ['duration', 'Duration'], ['title', 'Title (A–Z)']].concat(r.anyPlays ? [['plays', 'Most played']] : [])
       .map(([k, label]) => chip('sort:' + k, L(label), f.sort === k)).join('');
@@ -3274,7 +3283,7 @@
     await loadPage(view);   // уже загруженная страница берётся из кэша
     const pg = pages.get(viewKey(view));
     if (!pg || pg.status !== 'ok') {
-      player.error = L('Could not play this: {0}', String((pg && pg.error) || 'Unknown error'));
+      player.error = L('Couldn’t play this: {0}', L(String((pg && pg.error) || 'Unknown error')));
       player.playing = false;
       return updatePlayer();
     }
@@ -3329,7 +3338,7 @@
   ['wheel', 'touchstart', 'pointerdown'].forEach((ev) => scrollerEl().addEventListener(ev, () => { pendingScroll = null; }, { passive: true }));   // своя прокрутка важнее возврата
 
   /* ---------- История поиска: выпадает под строкой поиска ---------- */
-  const HIST_KEY = 'music-player-search-history';
+  const HIST_KEY = 'wivy-search-history';
   const HIST_MAX = 12;
   let searchHist = [];
   try { const h = JSON.parse(localStorage.getItem(HIST_KEY) || '[]'); if (Array.isArray(h)) searchHist = h.filter((x) => typeof x === 'string').slice(0, HIST_MAX); } catch (e) { /* пусто */ }
@@ -3858,7 +3867,7 @@
   applyScale();
   // сначала подгружаем языки, потом рисуем интерфейс: так при запуске не мелькает русский текст
   const boot = () => { renderWindowControls(); renderAll(); updatePlayer(); };
-  loadLocales().then(boot, boot);
+  loadLanguages().then(boot, boot);
   bootSync();
   if (window.api && window.api.appInfo) Promise.resolve(window.api.appInfo()).then((i) => { info = i || {}; }).catch(() => {});
   if (window.api && window.api.getWallpaper) {

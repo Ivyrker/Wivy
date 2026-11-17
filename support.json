@@ -1,11 +1,23 @@
 {
   "author": "Ivyrker",
-  "message": "If the player is useful to you, you can support its development.",
-  "share": "Try Music Player: one player for SoundCloud, VK Music, YouTube Music and Yandex Music.",
+  "message": "If Wivy is useful to you, you can support its development.",
+  "share": "Try Wivy: a customizable music player that brings SoundCloud and VK Music together in one app.",
   "feedback": "https://github.com/Ivyrker/Wivy",
   "links": [
-    { "title": "Donation", "note": "A one-time donation of any amount", "url": "" },
-    { "title": "Subscription", "note": "Regular support for the project", "url": "" },
-    { "title": "Project page", "note": "Source code, stars and discussions", "url": "" }
+    {
+      "title": "Donation",
+      "note": "A one-time donation of any amount",
+      "url": ""
+    },
+    {
+      "title": "Subscription",
+      "note": "Regular support for the project",
+      "url": ""
+    },
+    {
+      "title": "Project page",
+      "note": "Source code, stars and discussions",
+      "url": "https://github.com/Ivyrker/Wivy"
+    }
   ]
 }

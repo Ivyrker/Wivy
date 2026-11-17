@@ -1,7 +1,11 @@
-const { app, BrowserWindow, ipcMain, shell, dialog, session } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog, session, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
+
+// Папка с данными закреплена по имени: настройки, вход в аккаунты (токены, cookie), обои и размер окна лежат в ней
+// и переживают любые обновления, пока имя папки не меняется. Не переименовывать.
+app.setPath('userData', path.join(app.getPath('appData'), 'Wivy'));
 
 // Папка со шрифтами: всё, что в неё положить, появится в настройках «Внешний вид → Шрифт».
 // Шрифт — это либо папка (fonts/Имя шрифта/regular.woff2, bold.woff2 ...), либо один файл прямо в fonts/.
@@ -86,17 +90,17 @@ function clearWallpaperFiles() {
   wallpaperFiles().forEach((n) => { try { fs.unlinkSync(path.join(dataDir(), n)); } catch (e) { /* ничего */ } });
 }
 
-// Языки интерфейса: каждый файл locales/*.json — отдельный язык { "name", "code", "strings": { "русская фраза": "перевод" } }.
+// Языки интерфейса: каждый файл languages/*.json — отдельный язык { "name", "code", "strings": { "English phrase": "перевод" } }.
 // Английский встроен в приложение, поэтому файл для него не нужен.
-const LOCALES_DIR = path.join(__dirname, 'locales');
+const LANGUAGES_DIR = path.join(__dirname, 'languages');
 
-function listLocales() {
+function listLanguages() {
   let names = [];
-  try { names = fs.readdirSync(LOCALES_DIR).filter((f) => /\.json$/i.test(f)); } catch (e) { return []; }
+  try { names = fs.readdirSync(LANGUAGES_DIR).filter((f) => /\.json$/i.test(f)); } catch (e) { return []; }
   const out = [];
   for (const file of names) {
     try {
-      const full = path.join(LOCALES_DIR, file);
+      const full = path.join(LANGUAGES_DIR, file);
       if (fs.statSync(full).size > 2 * 1024 * 1024) continue;   // перевод на пару тысяч строк весит в разы меньше
       const raw = JSON.parse(fs.readFileSync(full, 'utf8'));
       if (!raw || typeof raw.strings !== 'object' || !raw.strings) continue;
@@ -115,16 +119,51 @@ const winOf = (event) => BrowserWindow.fromWebContents(event.sender);
 // значок приложения: окно, панель задач, Alt+Tab (icon.ico для Windows, icon.png для остальных систем)
 const ICON = path.join(__dirname, process.platform === 'win32' ? 'icon.ico' : 'icon.png');
 
+/* ---------- Размер и положение окна запоминаются между запусками ---------- */
+const MIN_SIZE = { width: 960, height: 560 };
+const DEFAULT_SIZE = { width: 1200, height: 760 };
+const stateFile = () => path.join(dataDir(), 'window-state.json');
+
+function loadWindowState() {
+  const fallback = { ...DEFAULT_SIZE, maximized: false };
+  let raw;
+  try { raw = JSON.parse(fs.readFileSync(stateFile(), 'utf8')); } catch (e) { return fallback; }
+  const num = (v) => (Number.isFinite(v) ? Math.round(v) : null);
+  const st = { width: num(raw && raw.width), height: num(raw && raw.height), x: num(raw && raw.x), y: num(raw && raw.y), maximized: !!(raw && raw.maximized) };
+  if (!st.width || !st.height) return fallback;
+
+  // окно не больше экрана и не меньше минимума
+  const area = screen.getPrimaryDisplay().workArea;
+  st.width = Math.min(Math.max(st.width, MIN_SIZE.width), Math.max(area.width, MIN_SIZE.width));
+  st.height = Math.min(Math.max(st.height, MIN_SIZE.height), Math.max(area.height, MIN_SIZE.height));
+
+  // прежнее положение берём, только если окно всё ещё видно на одном из экранов (монитор могли отключить)
+  const visible = st.x !== null && st.y !== null && screen.getAllDisplays().some(({ workArea: a }) =>
+    st.x + st.width > a.x + 100 && st.x < a.x + a.width - 100 && st.y >= a.y - 20 && st.y < a.y + a.height - 100);
+  if (!visible) { st.x = null; st.y = null; }
+  return st;
+}
+
+function saveWindowState(win) {
+  if (!win || win.isDestroyed()) return;
+  const b = win.getNormalBounds(); // размеры обычного окна, даже когда сейчас оно развёрнуто
+  const data = { x: b.x, y: b.y, width: b.width, height: b.height, maximized: win.isMaximized() };
+  try { fs.writeFileSync(stateFile(), JSON.stringify(data)); } catch (e) { /* ничего */ }
+}
+
 function createWindow() {
+  const st = loadWindowState();
   const win = new BrowserWindow({
     icon: fs.existsSync(ICON) ? ICON : undefined,
-    width: 1200,
-    height: 760,
-    minWidth: 960,
-    minHeight: 560,
+    width: st.width,
+    height: st.height,
+    ...(st.x !== null && st.y !== null ? { x: st.x, y: st.y } : {}),
+    minWidth: MIN_SIZE.width,
+    minHeight: MIN_SIZE.height,
     backgroundColor: '#161616',
     autoHideMenuBar: true,
-    title: 'Music Player',
+    title: 'Wivy',
+    show: false, // показываем, когда страница готова: без вспышки окна обычного размера перед разворачиванием
 
     // системный бар убран целиком, включая кнопки окна: их рисует само приложение (см. renderer.js)
     titleBarStyle: 'hidden',
@@ -133,10 +172,19 @@ function createWindow() {
 
     webPreferences: { preload: path.join(__dirname, 'preload.js') },
   });
+  if (st.maximized) win.maximize();
+  win.once('ready-to-show', () => win.show());
+  setTimeout(() => { if (!win.isDestroyed() && !win.isVisible()) win.show(); }, 4000); // на случай, если страница не загрузилась
 
   // сообщаем окну приложения, развёрнуто ли оно, чтобы кнопка меняла значок
   win.on('maximize', () => win.webContents.send('win:maximized', true));
   win.on('unmaximize', () => win.webContents.send('win:maximized', false));
+
+  // сохраняем размер и «развёрнуто или нет»: при изменении (с паузой, чтобы не писать файл на каждый пиксель) и при закрытии
+  let saveTimer = null;
+  const saveSoon = () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => saveWindowState(win), 400); };
+  ['resize', 'move', 'maximize', 'unmaximize'].forEach((ev) => win.on(ev, saveSoon));
+  win.on('close', () => { clearTimeout(saveTimer); saveWindowState(win); });
 
   win.loadFile('index.html');
 }
@@ -158,11 +206,12 @@ ipcMain.handle('win:is-maximized', (e) => { const w = winOf(e); return !!(w && w
 
 /* ---------- Обои ---------- */
 ipcMain.handle('wallpaper:get', () => findWallpaper());
-ipcMain.handle('wallpaper:pick', async (e) => {
+ipcMain.handle('wallpaper:pick', async (e, labels) => {
+  const text = (v, fallback) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 80) : fallback);
   const options = {
-    title: 'Выберите картинку для обоев',
+    title: text(labels && labels.title, 'Choose a wallpaper image'), // подписи приходят из окна приложения, на языке интерфейса
     properties: ['openFile'],
-    filters: [{ name: 'Изображения', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'avif'] }],
+    filters: [{ name: text(labels && labels.filter, 'Images'), extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'avif'] }],
   };
   const win = winOf(e);
   const res = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
@@ -188,10 +237,10 @@ ipcMain.handle('wallpaper:read', () => {
 ipcMain.handle('wallpaper:clear', () => { clearWallpaperFiles(); return null; });
 
 /* ---------- Шрифты и сведения о приложении ---------- */
-ipcMain.handle('locales:list', () => listLocales());
-ipcMain.handle('locales:open-folder', async () => {
-  await fs.promises.mkdir(LOCALES_DIR, { recursive: true });
-  return shell.openPath(LOCALES_DIR);
+ipcMain.handle('languages:list', () => listLanguages());
+ipcMain.handle('languages:open-folder', async () => {
+  await fs.promises.mkdir(LANGUAGES_DIR, { recursive: true });
+  return shell.openPath(LANGUAGES_DIR);
 });
 ipcMain.handle('fonts:list', () => listFonts());
 ipcMain.handle('fonts:open-folder', async () => {
@@ -217,9 +266,20 @@ ipcMain.handle('app:info', () => ({
   arch: process.arch,
 }));
 
-app.setAppUserModelId('com.musicplayer.app'); // чтобы Windows показывала значок приложения в панели задач и в уведомлениях
+app.setAppUserModelId('com.wivy.app'); // чтобы Windows показывала значок приложения в панели задач и в уведомлениях (совпадает с appId в package.json)
 
 app.whenReady().then(() => {
+  // Уведомления Windows берут имя и значок приложения из ярлыка с тем же appUserModelId. В установленной сборке его создаёт установщик,
+  // а при запуске из исходников (npm start) его нет, и Windows показывает Electron. Поэтому в этом режиме делаем такой ярлык сами.
+  if (process.platform === 'win32' && !app.isPackaged) {
+    try {
+      const lnk = path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Wivy.lnk');
+      shell.writeShortcutLink(lnk, 'create', {
+        target: process.execPath, args: '"' + app.getAppPath() + '"', cwd: app.getAppPath(),
+        icon: ICON, iconIndex: 0, appUserModelId: 'com.wivy.app', description: 'Wivy',
+      });
+    } catch (e) { /* ничего */ }
+  }
   // защищённый DNS (DoH), как в браузере: провайдерский DNS может подменять адреса заблокированных сайтов,
   // и тогда окно приложения видит чужой сертификат (ERR_CERT_COMMON_NAME_INVALID). Если DoH недоступен, остаётся обычный DNS
   try {
@@ -236,6 +296,7 @@ app.whenReady().then(() => {
     h['Access-Control-Allow-Origin'] = ['*'];
     done({ responseHeaders: h });
   });
+  if (process.platform === 'darwin' && app.dock && fs.existsSync(ICON)) { try { app.dock.setIcon(ICON); } catch (e) { /* ничего */ } } // значок в Dock при запуске из исходников
   createWindow();
 });
 

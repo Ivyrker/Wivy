@@ -29,7 +29,7 @@ function saveConf(c) { conf = c; try { fs.writeFileSync(confFile(), JSON.stringi
 /* ---------- Сеть ---------- */
 const ses = () => session.fromPartition(PARTITION);
 // обычный Chrome без пометок Electron: так вход реже отвергается
-const chromeUA = () => ses().getUserAgent().replace(/\s*Electron\/\S+/, '').replace(/\s*music-player\/\S+/i, '');
+const chromeUA = () => ses().getUserAgent().replace(/\s*Electron\/\S+/, '').replace(/\s*wivy\/\S+/i, '');
 const hostOf = (u) => { try { const m = new URL(u).hostname.match(/(?:^|\.)(vk\.(?:com|ru))$/); return m ? m[1] : null; } catch (e) { return null; } };
 
 // сетевые сбои (подмена адреса провайдером → ERR_CERT_COMMON_NAME_INVALID, обрыв, DNS) часто проходят сами: повторяем запрос с паузой
@@ -168,7 +168,7 @@ async function audioJson(host, form) {
       throw new Error('Unexpected response from VK (HTTP ' + res.status + ')');
     }
     if (json && typeof json.location === 'string' && /^https:\/\/login\.vk\.(?:com|ru)\//.test(json.location)) {
-      if (attempt >= 2) throw new Error('VK did not accept the session for m.' + host);
+      if (attempt >= 2) throw new Error('VK did not accept the session');
       log('cookie handshake:', json.location.slice(0, 60) + '…');
       const r = await ses().fetch(json.location, { credentials: 'include', headers: { 'User-Agent': chromeUA() } });
       await r.text(); // тело не нужно: важно, что VK выставил cookie для m.vk.ru
@@ -190,7 +190,7 @@ async function loadSection(host, uid, offset, playlistId = '-1', accessHash = ''
   const d = findList(json);
   if (!d) {
     log('no list in response:', res.status, res.url, text.slice(0, 400).replace(/\s+/g, ' '));
-    throw new Error('VK returned no track list (see the [VK] line in the terminal)');
+    throw new Error('VK returned no track list');
   }
   if (playlistId !== '-1' && !metaLogged) { // что VK кладёт рядом со списком плейлиста: по этой строке видно, откуда брать название, автора и обложку
     metaLogged = true;
@@ -1129,7 +1129,7 @@ function likeForm(track, on) {
   const hashes = String((track && track.hash) || '').split('/');
   const act = on ? (hashes[0] ? 'add' : 'restore_audio') : 'delete_audio';
   const hash = hashes[HASH_AT[act]];
-  if (!hash) throw new Error('No hash for this action: refresh the library');
+  if (!hash) throw new Error('Refresh your library and try again');
   const trackCode = String((track && track.trackCode) || '');
   const form = { al: '1', act, hash, oid: owner, aid: id };
   if (act === 'add') Object.assign(form, { group_id: '0', gid: '0', album_id: '-2', owner_id: owner, audio_id: id });
@@ -1155,7 +1155,7 @@ function inVkPage(want) {
     const HASH_AT = { add: 0, delete_audio: 3, restore_audio: 6 };
     const send = (hashes, trackCode, fromPage) => {
       const hash = hashes[HASH_AT[want.act]];
-      if (!hash) return done({ ok: false, error: 'No hash for this action' });
+      if (!hash) return done({ ok: false, error: 'Refresh your library and try again' });
       const q = { al: 1, act: want.act, hash, oid: want.owner, aid: want.id };
       if (want.act === 'add') Object.assign(q, { group_id: 0, gid: 0, album_id: -2, owner_id: want.owner, audio_id: want.id });
       if (want.act === 'delete_audio') q.restore = 1;
