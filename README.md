@@ -14,7 +14,7 @@ All your music from SoundCloud, VK Music, YouTube Music and Yandex Music — in 
 [![Stars](https://img.shields.io/github/stars/Ivyrker/Wivy?style=flat)](https://github.com/Ivyrker/Wivy/stargazers)
 [![Last commit](https://img.shields.io/github/last-commit/Ivyrker/Wivy)](https://github.com/Ivyrker/Wivy/commits/main)
 
-<sub>README last updated: 14.11.2026</sub>
+<sub>README last updated: 19.11.2026</sub>
 
 </div>
 
@@ -30,9 +30,13 @@ The main idea is **customization**: wallpaper, transparency, glass effect, fonts
 
 <div align="center">
 
-| Home page | Track page | Settigns |
-| :---: | :---: | :---: |
-| <img src="https://raw.githubusercontent.com/Ivyrker/Wivy/main/screenshots/list.png" alt="Home"/> | <img src="https://raw.githubusercontent.com/Ivyrker/Wivy/main/screenshots/track.png" alt="Track"/> | <img src="https://raw.githubusercontent.com/Ivyrker/Wivy/main/screenshots/settings.png" alt="Settigns"/> |
+| Home page | Track page |
+| :---: | :---: |
+| <img src="https://raw.githubusercontent.com/Ivyrker/Wivy/main/screenshots/list.png" alt="Home"/> | <img src="https://raw.githubusercontent.com/Ivyrker/Wivy/main/screenshots/track.png" alt="Track"/> |
+
+| Settigns | Search |
+| :---: | :---: |
+| <img src="https://raw.githubusercontent.com/Ivyrker/Wivy/main/screenshots/settings.png" alt="Settings"/> | <img src="https://raw.githubusercontent.com/Ivyrker/Wivy/main/screenshots/search.png" alt="Search"/> |
 
 </div>
 
@@ -41,6 +45,7 @@ The main idea is **customization**: wallpaper, transparency, glass effect, fonts
 - **Music aggregator** — SoundCloud, VK Music, YouTube Music and Yandex Music in one app. The "All tracks" tab merges your liked tracks from every connected service, and each track is marked with its platform icon.
 - **Library sync** — liked tracks, playlists, followed artists and recently added tracks.
 - **Track, artist and playlist pages** — tags, related tracks, and quick links to open the item on the original service.
+- **Multi-service Search** — search through all streaming services at once.
 - **Queue** — drag and drop reordering, shuffle, repeat (playlist / single track).
 - **Deep appearance customization**
   - themes, accent color and saturation, text color
@@ -58,32 +63,32 @@ The main idea is **customization**: wallpaper, transparency, glass effect, fonts
 | Service | Status |
 | :--- | :---: |
 | SoundCloud | ✅ |
-| VK Music | ✅ |
+| VK Music | ✅/🚧(some bug, not so critical) |
 | YouTube Music | 🚧 |
 | Yandex Music | 🚧 |
 
-> Support for the services marked 🚧 is under active development and may be incomplete.
+> Support for the services marked 🚧 is under active development and may be incomplete or dont exists now.
 
 ## Download
 
 Wivy is distributed only through [GitHub Releases](https://github.com/Ivyrker/Wivy/releases).
 
-> **No releases yet.** The first build will appear there as soon as it is ready — star or watch the repository to not miss it.
+**[DOWNLOAD HERE](https://github.com/Ivyrker/Wivy/releases/latest)** Wivy can self-update if it turned on in settings
 
 ## Usage
 
 1. Launch Wivy.
-2. Click a service icon in the left sidebar and connect your account.
+2. Connect your accounts in **Settings**.
 3. Wait for the library to sync — your likes, playlists and artists will appear in the tabs.
 4. Open **Settings** (the gear at the bottom of the sidebar) → **Appearance** to make the player look the way you want.
 
 ## Localization
 
-Interface languages are stored as JSON files in the [`locales`](locales) folder. To add a translation, copy the English file, translate the values and send a pull request — or just drop your file into the folder for personal use.
+Interface languages are stored as JSON files in the [`AppData\Roaming\Wivy\languages`](languages) folder. To add a translation, copy the English file, translate the values and put it there.
 
 ## Contributing
 
-Bug reports, ideas and pull requests are welcome. If you found a problem, please [open an issue](https://github.com/Ivyrker/Wivy/issues) and describe the steps to reproduce it (a screenshot helps).
+Bug reports and ideas are welcome. If you found a problem you can [open an issue](https://github.com/Ivyrker/Wivy/issues) and describe the steps to reproduce it (a screenshot helps).
 
 ## Support the project
 

@@ -1,12 +1,13 @@
 {
   "name": "wivy",
   "productName": "Wivy",
-  "version": "1.0",
+  "version": "1.0.0",
   "description": "Customizable player, aggregator of music services",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder"
+    "dist": "electron-builder --publish never",
+    "release": "electron-builder --publish always"
   },
   "keywords": [
     "music",
@@ -24,7 +25,8 @@
   },
   "type": "commonjs",
   "dependencies": {
-    "hls.js": "^1.6.0"
+    "hls.js": "^1.6.0",
+    "electron-updater": "^6.8.11"
   },
   "devDependencies": {
     "electron": "^44.9.0",
@@ -45,9 +47,12 @@
       "index.html",
       "styles.css",
       "support.json",
+      "patchnotes.json",
+      "patchnotes/**/*",
       "placeholder.svg",
       "icon.png",
       "icon.ico",
+      "icon-pixel.png",
       "fonts/**/*",
       "languages/**/*",
       "node_modules/hls.js/dist/**/*",
@@ -56,7 +61,8 @@
     "win": {
       "icon": "icon.ico",
       "target": [
-        "nsis"
+        "nsis",
+        "zip"
       ]
     },
     "nsis": {
@@ -73,6 +79,13 @@
         "AppImage"
       ],
       "category": "Audio"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Ivyrker",
+        "repo": "Wivy"
+      }
+    ]
   }
 }

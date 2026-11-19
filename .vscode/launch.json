@@ -19,3 +19,5 @@
 //git fetch origin
 //git reset --hard origin/main
 //git clean -fd
+
+//npm run dist --win --x64 --prepackaged

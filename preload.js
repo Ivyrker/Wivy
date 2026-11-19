@@ -67,6 +67,16 @@ contextBridge.exposeInMainWorld('api', {
   clearWallpaper: () => ipcRenderer.invoke('wallpaper:clear'),
 
   appInfo: () => ipcRenderer.invoke('app:info'),
+  patchNotes: () => ipcRenderer.invoke('app:patchnotes'),
+
+  // автообновление: состояние, выключатель, проверка вручную, установка скачанного
+  updates: {
+    get: () => ipcRenderer.invoke('updates:get'),
+    setAuto: (on) => ipcRenderer.invoke('updates:set-auto', !!on),
+    check: () => ipcRenderer.invoke('updates:check'),
+    install: () => ipcRenderer.invoke('updates:install'),
+    onStatus: (callback) => ipcRenderer.on('updates:status', (_event, state) => callback(state)),
+  },
 
   // ссылки для раздела «Поддержать проект» (из support.json)
   supportConfig: () => ipcRenderer.invoke('app:support'),

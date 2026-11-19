@@ -1,0 +1,19 @@
+{
+  "entries": [
+    {
+      "version": "1.0.0",
+      "date": "2026-11-18",
+      "title": "First release",
+      "items": [
+        "A first public look at the app.",
+        "Connect all your favorite music-listening platforms (well, not *all* of them—for now, just VK and SoundCloud).",
+        "Themes, colors, and fonts. Customize everything to suit your own taste and style. Share with friends and express yourself.",
+        "Make everything more convenient and intuitive with custom interface translations. Tailor the wording exactly the way you want it.",
+        "All the latest features await you the moment they arrive, thanks to automatic updates.",
+        "Everything is completely free, with no optional subscriptions. While everything is free, new features don’t just appear on their own. In the future, you’ll have the option to support the author (me—I need to eat, too!).",
+        "I always welcome suggestions for improving the app, and I’m happy to help resolve any bugs you encounter. Please submit these via the Issues section of the project's GitHub repository."
+      ],
+      "images": ["100.png"]
+    }
+  ]
+}

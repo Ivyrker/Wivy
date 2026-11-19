@@ -7,10 +7,14 @@ const { pathToFileURL } = require('url');
 // и переживают любые обновления, пока имя папки не меняется. Не переименовывать.
 app.setPath('userData', path.join(app.getPath('appData'), 'Wivy'));
 
-// Папка со шрифтами: всё, что в неё положить, появится в настройках «Внешний вид → Шрифт».
+// Шрифты берутся только из папки fonts в данных Wivy (roaming). Встроенные шрифты лежат рядом с приложением лишь как образец:
+// при первом запуске они копируются в эту папку (см. seedUserData). Всё, что положить в папку, появится в настройках «Внешний вид → Шрифт».
 // Шрифт — это либо папка (fonts/Имя шрифта/regular.woff2, bold.woff2 ...), либо один файл прямо в fonts/.
 const FONTS_DIR = path.join(__dirname, 'fonts');
+const userFontsDir = () => path.join(app.getPath('userData'), 'fonts');
 const FONT_FILE = /\.(woff2?|ttf|otf)$/i;
+const FONT_MIME = { woff2: 'font/woff2', woff: 'font/woff', ttf: 'font/ttf', otf: 'font/otf' };
+const MAX_USER_FONT = 12 * 1024 * 1024;
 const WEIGHTS = {
   thin: 100, hairline: 100, extralight: 200, ultralight: 200, light: 300, regular: 400, normal: 400, book: 400,
   medium: 500, semibold: 600, demibold: 600, bold: 700, extrabold: 800, ultrabold: 800, black: 900, heavy: 900,
@@ -25,27 +29,42 @@ function parseFace(fileName) {
   return { weight: String(word ? WEIGHTS[word] : 400), style: base.includes('italic') ? 'italic' : 'normal' };
 }
 
-function listFonts() {
+// toUrl превращает путь к файлу в адрес для окна: встроенные шрифты отдаются относительным путём,
+// свои читаются в data:-адрес (страница из файла не может открыть чужую папку напрямую)
+function scanFonts(root, toUrl) {
   let entries = [];
-  try { entries = fs.readdirSync(FONTS_DIR, { withFileTypes: true }); } catch (e) { return []; }
-
+  try { entries = fs.readdirSync(root, { withFileTypes: true }); } catch (e) { return []; }
   const families = [];
   for (const entry of entries) {
     if (entry.isDirectory()) {
       let files = [];
-      try { files = fs.readdirSync(path.join(FONTS_DIR, entry.name)).filter((f) => FONT_FILE.test(f)); } catch (e) { /* пропускаем */ }
-      const faces = files.map((f) => ({
-        url: 'fonts/' + encodeURIComponent(entry.name) + '/' + encodeURIComponent(f), // путь от index.html
-        ...parseFace(f),
-      }));
+      try { files = fs.readdirSync(path.join(root, entry.name)).filter((f) => FONT_FILE.test(f)); } catch (e) { /* пропускаем */ }
+      const faces = files.map((f) => ({ url: toUrl([entry.name, f]), ...parseFace(f) })).filter((f) => f.url);
       if (faces.length) families.push({ family: entry.name, faces });
     } else if (FONT_FILE.test(entry.name)) {
-      families.push({
-        family: entry.name.replace(FONT_FILE, '').replace(/[-_]+/g, ' '),
-        faces: [{ url: 'fonts/' + encodeURIComponent(entry.name), ...parseFace(entry.name) }],
-      });
+      const url = toUrl([entry.name]);
+      if (url) families.push({ family: entry.name.replace(FONT_FILE, '').replace(/[-_]+/g, ' '), faces: [{ url, ...parseFace(entry.name) }] });
     }
   }
+  return families;
+}
+
+const fontCache = new Map(); // путь -> { stamp, url }: шрифты не читаются и не кодируются заново при каждом обновлении списка
+function listFonts() {
+  const families = scanFonts(userFontsDir(), (parts) => {
+    const full = path.join(userFontsDir(), ...parts);
+    try {
+      const st = fs.statSync(full);
+      if (st.size > MAX_USER_FONT) return '';
+      const stamp = st.size + ':' + st.mtimeMs;
+      const hit = fontCache.get(full);
+      if (hit && hit.stamp === stamp) return hit.url;
+      const ext = path.extname(full).slice(1).toLowerCase();
+      const url = 'data:' + (FONT_MIME[ext] || 'font/ttf') + ';base64,' + fs.readFileSync(full).toString('base64');
+      fontCache.set(full, { stamp, url });
+      return url;
+    } catch (e) { return ''; }
+  });
   return families.sort((a, b) => a.family.localeCompare(b.family, 'ru'));
 }
 
@@ -91,16 +110,18 @@ function clearWallpaperFiles() {
 }
 
 // Языки интерфейса: каждый файл languages/*.json — отдельный язык { "name", "code", "strings": { "English phrase": "перевод" } }.
-// Английский встроен в приложение, поэтому файл для него не нужен.
+// Английский встроен в приложение, поэтому файл для него не нужен. Файлы берутся только из папки languages в данных Wivy (roaming);
+// встроенный ru.json лежит рядом с приложением как образец и при первом запуске копируется туда (см. seedUserData).
 const LANGUAGES_DIR = path.join(__dirname, 'languages');
+const userLanguagesDir = () => path.join(app.getPath('userData'), 'languages');
 
-function listLanguages() {
+function readLanguages(dir) {
   let names = [];
-  try { names = fs.readdirSync(LANGUAGES_DIR).filter((f) => /\.json$/i.test(f)); } catch (e) { return []; }
+  try { names = fs.readdirSync(dir).filter((f) => /\.json$/i.test(f) && !/-template\.json$/i.test(f)); } catch (e) { return []; }
   const out = [];
   for (const file of names) {
     try {
-      const full = path.join(LANGUAGES_DIR, file);
+      const full = path.join(dir, file);
       if (fs.statSync(full).size > 2 * 1024 * 1024) continue;   // перевод на пару тысяч строк весит в разы меньше
       const raw = JSON.parse(fs.readFileSync(full, 'utf8'));
       if (!raw || typeof raw.strings !== 'object' || !raw.strings) continue;
@@ -111,7 +132,11 @@ function listLanguages() {
       out.push({ code, name: String(raw.name || code).slice(0, 40), strings });
     } catch (e) { /* битый файл пропускаем */ }
   }
-  return out.sort((a, b) => a.name.localeCompare(b.name));
+  return out;
+}
+
+function listLanguages() {
+  return readLanguages(userLanguagesDir()).sort((a, b) => a.name.localeCompare(b.name));
 }
 
 const winOf = (event) => BrowserWindow.fromWebContents(event.sender);
@@ -239,15 +264,35 @@ ipcMain.handle('wallpaper:clear', () => { clearWallpaperFiles(); return null; })
 /* ---------- Шрифты и сведения о приложении ---------- */
 ipcMain.handle('languages:list', () => listLanguages());
 ipcMain.handle('languages:open-folder', async () => {
-  await fs.promises.mkdir(LANGUAGES_DIR, { recursive: true });
-  return shell.openPath(LANGUAGES_DIR);
+  await fs.promises.mkdir(userLanguagesDir(), { recursive: true });
+  return shell.openPath(userLanguagesDir());
 });
 ipcMain.handle('fonts:list', () => listFonts());
 ipcMain.handle('fonts:open-folder', async () => {
-  await fs.promises.mkdir(FONTS_DIR, { recursive: true });
-  return shell.openPath(FONTS_DIR);
+  await fs.promises.mkdir(userFontsDir(), { recursive: true });
+  return shell.openPath(userFontsDir());
 });
 ipcMain.handle('app:support', () => readSupport());
+
+// Заметки об обновлениях: patchnotes.json лежит рядом с main.js, картинки к ним в папке patchnotes (подробности в patchnotes/README.txt)
+const NOTES_DIR = path.join(__dirname, 'patchnotes');
+const IMG_FILE = /\.(png|jpe?g|webp|gif|avif)$/i;
+function readPatchNotes() {
+  let raw;
+  try { raw = JSON.parse(fs.readFileSync(path.join(__dirname, 'patchnotes.json'), 'utf8')); } catch (e) { return []; }
+  const str = (v, n) => String(v == null ? '' : v).slice(0, n);
+  return (Array.isArray(raw && raw.entries) ? raw.entries : []).slice(0, 60).map((e) => ({
+    version: str(e && e.version, 30),
+    date: str(e && e.date, 30),
+    title: str(e && e.title, 120),
+    items: (Array.isArray(e && e.items) ? e.items : []).slice(0, 40).map((t) => str(t, 300)).filter(Boolean),
+    images: (Array.isArray(e && e.images) ? e.images : []).slice(0, 8)
+      .map((f) => path.basename(String(f || '')))                       // только имя файла: выйти из папки нельзя
+      .filter((f) => IMG_FILE.test(f) && fs.existsSync(path.join(NOTES_DIR, f)))
+      .map((f) => 'patchnotes/' + encodeURIComponent(f)),
+  })).filter((e) => e.version || e.title);
+}
+ipcMain.handle('app:patchnotes', () => readPatchNotes());
 // открываем только те ссылки, которые автор указал в support.json
 ipcMain.handle('app:open-external', async (_e, url) => {
   const cfg = readSupport();
@@ -266,18 +311,96 @@ ipcMain.handle('app:info', () => ({
   arch: process.arch,
 }));
 
+/* ---------- Папки fonts и languages в данных Wivy: создаются сразу при запуске ---------- */
+// Встроенные шрифты и ru.json копируются в %APPDATA%\Wivy\fonts и \languages. Недостающие файлы докладываются при каждом запуске;
+// при смене версии приложения встроенные файлы обновляются (их правки теряются: свой перевод сохраняйте под новым именем).
+function seedDir(src, dst, overwrite) {
+  fs.mkdirSync(dst, { recursive: true });
+  let entries = [];
+  try { entries = fs.readdirSync(src, { withFileTypes: true }); } catch (e) { return; }
+  for (const e of entries) {
+    const from = path.join(src, e.name);
+    const to = path.join(dst, e.name);
+    try {
+      if (e.isDirectory()) seedDir(from, to, overwrite);
+      else if (overwrite || !fs.existsSync(to)) fs.copyFileSync(from, to);
+    } catch (err) { /* файл занят или нет прав: пропускаем */ }
+  }
+}
+function seedUserData() {
+  const marker = path.join(dataDir(), 'seed-version.txt');
+  let last = '';
+  try { last = fs.readFileSync(marker, 'utf8').trim(); } catch (e) { /* первый запуск */ }
+  const overwrite = last !== app.getVersion();
+  seedDir(FONTS_DIR, userFontsDir(), overwrite);
+  seedDir(LANGUAGES_DIR, userLanguagesDir(), overwrite);
+  try { fs.writeFileSync(marker, app.getVersion()); } catch (e) { /* ничего */ }
+}
+
+/* ---------- Автообновление (electron-updater, релизы на GitHub) ---------- */
+const updateFile = () => path.join(dataDir(), 'update-settings.json');
+const upd = { auto: true, state: 'idle', version: '', percent: 0, error: '', packaged: app.isPackaged };
+let autoUpdater = null;
+let updTimer = null;
+
+try { const r = JSON.parse(fs.readFileSync(updateFile(), 'utf8')); if (typeof r.auto === 'boolean') upd.auto = r.auto; } catch (e) { /* по умолчанию включено */ }
+const saveUpdSettings = () => { try { fs.writeFileSync(updateFile(), JSON.stringify({ auto: upd.auto })); } catch (e) { /* ничего */ } };
+const broadcastUpd = () => BrowserWindow.getAllWindows().forEach((w) => { if (!w.isDestroyed()) w.webContents.send('updates:status', { ...upd }); });
+const setUpd = (patch) => { Object.assign(upd, patch); broadcastUpd(); };
+
+function setupUpdater() {
+  if (!app.isPackaged) { upd.state = 'dev'; return; }   // из исходников обновляться нечему
+  try { ({ autoUpdater } = require('electron-updater')); } catch (e) { setUpd({ state: 'error', error: 'The updater is missing' }); return; }
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = upd.auto;
+  autoUpdater.on('checking-for-update', () => setUpd({ state: 'checking', error: '' }));
+  autoUpdater.on('update-available', (i) => setUpd({ state: 'downloading', version: String((i && i.version) || ''), percent: 0 }));
+  autoUpdater.on('update-not-available', () => setUpd({ state: 'none' }));
+  autoUpdater.on('download-progress', (p) => setUpd({ state: 'downloading', percent: Math.round((p && p.percent) || 0) }));
+  autoUpdater.on('update-downloaded', (i) => setUpd({ state: 'downloaded', version: String((i && i.version) || upd.version) }));
+  autoUpdater.on('error', (e) => setUpd({ state: 'error', error: String((e && e.message) || e || 'Unknown error').split('\n')[0].slice(0, 200) }));
+}
+async function checkUpdates() {
+  if (!autoUpdater || upd.state === 'checking' || upd.state === 'downloading') return;
+  try { await autoUpdater.checkForUpdates(); } catch (e) { setUpd({ state: 'error', error: String((e && e.message) || e).split('\n')[0].slice(0, 200) }); }
+}
+function scheduleUpdates() {
+  clearInterval(updTimer);
+  updTimer = null;
+  if (!upd.auto || !autoUpdater) return;
+  updTimer = setInterval(checkUpdates, 4 * 60 * 60 * 1000);
+  setTimeout(checkUpdates, 8000); // проверка вскоре после запуска, когда окно уже открыто
+}
+ipcMain.handle('updates:get', () => ({ ...upd }));
+ipcMain.handle('updates:set-auto', (_e, on) => {
+  upd.auto = !!on;
+  saveUpdSettings();
+  if (autoUpdater) autoUpdater.autoInstallOnAppQuit = upd.auto;
+  scheduleUpdates();
+  broadcastUpd();
+  return { ...upd };
+});
+ipcMain.handle('updates:check', async () => { await checkUpdates(); return { ...upd }; });
+ipcMain.handle('updates:install', () => { if (autoUpdater && upd.state === 'downloaded') autoUpdater.quitAndInstall(); });
+
 app.setAppUserModelId('com.wivy.app'); // чтобы Windows показывала значок приложения в панели задач и в уведомлениях (совпадает с appId в package.json)
 
 app.whenReady().then(() => {
-  // Уведомления Windows берут имя и значок приложения из ярлыка с тем же appUserModelId. В установленной сборке его создаёт установщик,
-  // а при запуске из исходников (npm start) его нет, и Windows показывает Electron. Поэтому в этом режиме делаем такой ярлык сами.
-  if (process.platform === 'win32' && !app.isPackaged) {
+  seedUserData(); // папки fonts и languages появляются сразу, ещё до открытия окна
+  // Уведомления Windows берут имя и значок приложения из ярлыка в меню «Пуск» с тем же appUserModelId.
+  // Установщик создаёт такой ярлык сам; если приложение запущено без установки (из исходников, из распакованной папки),
+  // ярлыка нет и Windows подписывает уведомления «Electron». Поэтому при необходимости делаем ярлык сами.
+  if (process.platform === 'win32') {
     try {
       const lnk = path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Wivy.lnk');
-      shell.writeShortcutLink(lnk, 'create', {
-        target: process.execPath, args: '"' + app.getAppPath() + '"', cwd: app.getAppPath(),
-        icon: ICON, iconIndex: 0, appUserModelId: 'com.wivy.app', description: 'Wivy',
-      });
+      let ok = false;
+      try { const cur = shell.readShortcutLink(lnk); ok = cur.appUserModelId === 'com.wivy.app' && path.resolve(cur.target || '').toLowerCase() === path.resolve(process.execPath).toLowerCase(); } catch (e) { /* ярлыка нет */ }
+      if (!ok) {
+        shell.writeShortcutLink(lnk, 'create', {
+          target: process.execPath, args: app.isPackaged ? '' : '"' + app.getAppPath() + '"', cwd: path.dirname(process.execPath),
+          icon: fs.existsSync(ICON) ? ICON : process.execPath, iconIndex: 0, appUserModelId: 'com.wivy.app', description: 'Wivy',
+        });
+      }
     } catch (e) { /* ничего */ }
   }
   // защищённый DNS (DoH), как в браузере: провайдерский DNS может подменять адреса заблокированных сайтов,
@@ -297,7 +420,9 @@ app.whenReady().then(() => {
     done({ responseHeaders: h });
   });
   if (process.platform === 'darwin' && app.dock && fs.existsSync(ICON)) { try { app.dock.setIcon(ICON); } catch (e) { /* ничего */ } } // значок в Dock при запуске из исходников
+  setupUpdater();
   createWindow();
+  scheduleUpdates();
 });
 
 app.on('window-all-closed', () => {

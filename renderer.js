@@ -184,13 +184,13 @@
   const STORE_KEY = 'wivy-settings';
   // tint — цвет оформления (null = без цвета); textColor — 'auto' | 'white' | 'black' | id оттенка
   const DEFAULTS = {
-    theme: 'dark', tint: null, sat: 80, textColor: 'auto', textSat: 70, sourceMode: 'icon', sourceShow: 'auto',
+    theme: 'dark', tint: null, sat: 80, textColor: 'auto', textSat: 70, sourceMode: 'title', sourceShow: 'auto',
     font: 'auto', fontSize: 14, pattern: 'dots', patternAlpha: 70, lang: 'en', uiScale: 100,
     aTitle: 100, aRail: 100, aMain: 100, aCanvas: 100, aCards: 100, aControls: 100, aPlayer: 100, aQueue: 100, aModal: 100, aScroll: 100, aLines: 100,
     glassBlur: 10, wpFit: 'cover', wpPos: 'c', wpBlur: 0, textOutline: 50,
-    bgColor: 'auto', bgSat: 60, outlineColor: 'auto', outlineIcons: true, outlineStyle: 'soft',
+    bgColor: 'auto', bgSat: 60, outlineColor: 'auto', outlineIcons: false, outlineStyle: 'soft',
     notifyTrack: false, notifyUnfocused: true, notifySilent: false,
-    autoplay: true, rememberVolume: true, volume: 70, autoSync: true, profileSrc: 'auto', syncEvery: 15,
+    autoplay: true, rememberVolume: true, volume: 70, autoSync: true, profileSrc: 'auto', syncEvery: 5,
     hideLocked: true, searchSort: 'relevance',
   };
   const BOOLS = ['notifyTrack', 'notifyUnfocused', 'notifySilent', 'autoplay', 'rememberVolume', 'outlineIcons', 'autoSync', 'hideLocked'];
@@ -1190,10 +1190,12 @@
         { id: 'font', name: 'Font and size' }, { id: 'panels', name: 'Panels and marks' } ] },
       { id: 'language', name: 'Language', icon: 'globe' },
       { id: 'integrations', name: 'Integrations', icon: 'plug' },
+      { id: 'updates', name: 'Updates', icon: 'refresh' },
       { id: 'hotkeys', name: 'Hotkeys', icon: 'keyboard' },
     ] },
     { title: 'Help', items: [
       { id: 'support', name: 'Support the project', icon: 'heartFill', subs: [{ id: 'author', name: 'Author' }, { id: 'more', name: 'Other ways' }] },
+      { id: 'patchnotes', name: 'Patch notes', icon: 'news' },
       { id: 'about', name: 'About', icon: 'info' },
     ] },
   ];
@@ -1235,7 +1237,7 @@
     { id: 'ap-outline-color', section: 'appearance', sub: 'theme', title: 'Outline color',
       desc: 'The color of the thin outline around text and icons. Strength and style are in "Text and icon outline" under Wallpaper and transparency.' },
     { id: 'ap-font', section: 'appearance', sub: 'font', title: 'Font',
-      desc: 'Fonts come from the fonts folder next to the app (.woff2, .woff, .ttf, .otf). Add a file or folder, then refresh the list.' },
+      desc: 'Fonts live in the fonts folder (.woff2, .woff, .ttf, .otf). Open it, add a file or folder, then refresh the list. Your own fonts stay after updates.' },
     { id: 'ap-fontsize', section: 'appearance', sub: 'font', title: 'Font size',
       desc: 'Base text size; other text sizes scale with it. To resize everything, use Interface scale.' },
     { id: 'ap-wallpaper', section: 'appearance', sub: 'wall', title: 'Wallpaper',
@@ -1259,25 +1261,32 @@
     { id: 'ap-scale', section: 'appearance', sub: 'font', title: 'Interface scale',
       desc: 'Scales the whole interface: text, icons and spacing. Applies when you release the slider. Font size above changes text only.' },
     { id: 'lang-select', section: 'language', sub: null, title: 'Interface language',
-      desc: 'English is built in. Other languages are .json files in the languages folder: add one, press "Refresh list" and it shows up here.' },
+      desc: 'English is built in. Other languages are .json files in the languages folder: add one, press "Refresh list", and it shows up here. Your own files stay after updates.' },
     { id: 'lang-custom', section: 'language', sub: null, title: 'Your own translation',
-      desc: 'Copy ru.json, translate the text to the right of each colon (leave the English keys on the left as they are), change "name" and "code", and save it in the same folder. Anything left untranslated stays in English.' },
+      desc: 'Open the languages folder, copy ru.json under a new name, translate the text to the right of each colon (leave the English keys on the left as they are), and change "name" and "code". Anything left untranslated stays in English.' },
     { id: 'int-rpc', section: 'integrations', sub: null, title: 'Discord status',
       desc: 'Show what you are listening to in your Discord profile.' },
     { id: 'int-lastfm', section: 'integrations', sub: null, title: 'Last.fm',
       desc: 'Scrobble the tracks you play to Last.fm.' },
     { id: 'int-media', section: 'integrations', sub: null, title: 'Media keys and system player',
       desc: 'Control playback with your keyboard media keys and the system media panel.' },
+    { id: 'upd-auto', section: 'updates', sub: null, title: 'Automatic updates',
+      desc: 'Wivy checks for a new version in the background and installs it when you close the app. When off, it never checks on its own.' },
+    { id: 'upd-status', section: 'updates', sub: null, title: 'Check for updates',
+      desc: 'See whether a newer version is available and install it.' },
+    { id: 'notes-list', section: 'patchnotes', sub: null, title: 'Release history',
+      desc: 'What changed in each version.' },
     { id: 'keys-list', section: 'hotkeys', sub: null, title: 'Hotkeys',
       desc: 'Space plays and pauses, / jumps to search, Alt+← and Alt+→ move back and forward, Esc closes settings.' },
-    { id: 'sup-author', section: 'support', sub: 'author', title: 'Support the author',
-      desc: 'If Wivy is useful to you, you can support its development with a donation or a subscription.' },
+    { id: 'sup-author', section: 'support', sub: 'author', title: 'Support the author', desc: '' },
     { id: 'sup-share', section: 'support', sub: 'more', title: 'Tell your friends',
       desc: 'Copy a short message about Wivy to send to a friend.' },
     { id: 'sup-feedback', section: 'support', sub: 'more', title: 'Ideas and bug reports',
       desc: 'Suggest an improvement or report something that is not working.' },
     { id: 'about-app', section: 'about', sub: null, title: 'About Wivy',
       desc: 'A customizable player for your music services. SoundCloud and VK Music work today; YouTube Music and Yandex Music are on the way.' },
+    { id: 'about-dist', section: 'about', sub: null, title: 'Distribution',
+      desc: 'The original Wivy is distributed only through the author’s GitHub page. Copies from other sources are not official and may be changed or unsafe.' },
     { id: 'about-info', section: 'about', sub: null, title: 'System information',
       desc: 'App, Electron, Chromium and system versions. Copy them into a bug report.' },
     { id: 'about-fonts', section: 'about', sub: null, title: 'Fonts and licenses',
@@ -1288,7 +1297,7 @@
   const subOf = (secId, subId) => ((secOf(secId) || {}).subs || []).find((x) => x.id === subId);
 
   /* --- строительные блоки страниц --- */
-  const head = (id) => `<div class="setting-text"><div class="setting-title">${esc(def(id).title)}</div><div class="setting-desc">${esc(def(id).desc)}</div></div>`;
+  const head = (id) => `<div class="setting-text"><div class="setting-title">${esc(def(id).title)}</div>${def(id).desc ? `<div class="setting-desc">${esc(def(id).desc)}</div>` : ''}</div>`;
   const switchBtn = (key, on, disabled) =>
     `<button class="switch ${on ? 'on' : ''}" role="switch" aria-checked="${!!on}" data-toggle="${key}" ${disabled ? 'disabled' : ''}><i></i></button>`;
   const toggleRow = (id, key) => `<div class="setting" data-setting="${id}"><div class="setting-row">${head(id)}${switchBtn(key, settings[key], false)}</div></div>`;
@@ -1507,13 +1516,12 @@
       <div><dt><kbd>Alt</kbd> + <kbd>←</kbd></dt><dd>${L('Go back')}</dd></div>
       <div><dt><kbd>Alt</kbd> + <kbd>→</kbd></dt><dd>${L('Go forward')}</dd></div>
       <div><dt><kbd>Esc</kbd></dt><dd>${L('Close settings or clear the search')}</dd></div>
-      <div><dt><kbd>${L('Mouse side buttons')}</kbd></dt><dd>${L('Go back and forward')}</dd></div>
     </dl>`;
 
   // значок и название приложения в начале раздела «О программе»
   const aboutBrand = () => `
     <div class="about-brand">
-      <img class="about-logo" src="icon.png" alt="" draggable="false">
+      <img class="about-logo" src="icon-pixel.png" alt="" draggable="false">
       <div><b>Wivy</b>${supportCfg.author ? `<small>${L('Author:')} ${esc(supportCfg.author)}</small>` : ''}</div>
     </div>`;
 
@@ -1526,6 +1534,42 @@
   /* --- раздел «Поддержать проект»: ссылки автора лежат в support.json --- */
   let wallpaper = null; // { url, name, size } из главного процесса
   let supportCfg = { author: '', message: '', share: '', feedback: '', links: [] };
+
+  /* --- обновления программы и заметки об обновлениях (всё считает основной процесс, см. main.js) --- */
+  let upd = { auto: true, state: 'idle', version: '', percent: 0, error: '', packaged: true };
+  let patchNotes = [];
+
+  const updStatusText = () => {
+    switch (upd.state) {
+      case 'dev': return L('Updates work only in the installed app.');
+      case 'checking': return L('Checking for updates…');
+      case 'downloading': return L('Downloading version {0}… {1}%', upd.version, upd.percent);
+      case 'downloaded': return L('Version {0} is ready. Restart to install it.', upd.version);
+      case 'none': return L('You have the latest version.');
+      case 'error': return L('Update check failed: {0}', L(upd.error || 'Unknown error'));
+      default: return upd.auto ? L('Updates are checked automatically.') : L('Automatic updates are off.');
+    }
+  };
+
+  function updatesHtml() {
+    const busy = upd.state === 'checking' || upd.state === 'downloading';
+    const bar = upd.state === 'downloading' ? `<div class="upd-bar"><i style="width:${upd.percent}%"></i></div>` : '';
+    const btn = upd.state === 'downloaded'
+      ? `<button class="btn primary" data-action="upd-install">${L('Restart and install')}</button>`
+      : `<button class="btn" data-action="upd-check" ${busy || upd.state === 'dev' ? 'disabled' : ''}>${L('Check now')}</button>`;
+    return `<div class="upd-line">${L('Current version: {0}', esc(info.version || '?'))}<br><span class="setting-desc">${esc(updStatusText())}</span></div>${bar}<div class="btn-row" style="margin:0">${btn}</div>`;
+  }
+
+  function patchNotesHtml() {
+    if (!patchNotes.length) return `<p class="setting-desc">${L('No patch notes yet.')}</p>`;
+    return patchNotes.map((n) => `
+      <div class="note">
+        <div class="note-head"><b>${esc(n.version)}</b>${n.date ? `<small>${esc(n.date)}</small>` : ''}</div>
+        ${n.title ? `<div class="note-title">${esc(L(n.title))}</div>` : ''}
+        ${n.items.length ? `<ul>${n.items.map((t) => `<li>${esc(L(t))}</li>`).join('')}</ul>` : ''}
+        ${n.images.length ? `<div class="note-imgs">${n.images.map((u) => `<img class="note-img" src="${esc(u)}" alt="" loading="lazy">`).join('')}</div>` : ''}
+      </div>`).join('');
+  }
 
   function supportAuthorHtml() {
     const links = supportCfg.links || [];
@@ -1624,6 +1668,13 @@
       case 'integrations':
         inner = soonRow('int-rpc') + soonRow('int-lastfm') + soonRow('int-media');
         break;
+      case 'updates':
+        inner = `<div class="setting" data-setting="upd-auto"><div class="setting-row">${head('upd-auto')}<button class="switch ${upd.auto ? 'on' : ''}" role="switch" aria-checked="${!!upd.auto}" data-upd-auto="1"><i></i></button></div></div>`
+              + blockRow('upd-status', updatesHtml());
+        break;
+      case 'patchnotes':
+        inner = blockRow('notes-list', patchNotesHtml());
+        break;
       case 'hotkeys':
         inner = blockRow('keys-list', hotkeys());
         break;
@@ -1636,7 +1687,7 @@
         break;
       }
       case 'about':
-        inner = blockRow('about-app', aboutBrand() + versions()) + buttonRow('about-info', `<button class="btn" data-action="copy-info">${L('Copy')}</button>`) + infoRow('about-fonts');
+        inner = blockRow('about-app', aboutBrand() + versions()) + buttonRow('about-dist', `<button class="btn" data-action="open-feedback" ${supportCfg.feedback ? '' : 'disabled'}>${L('Open GitHub')}</button>`) + buttonRow('about-info', `<button class="btn" data-action="copy-info">${L('Copy')}</button>`) + infoRow('about-fonts');
         break;
       default: break;
     }
@@ -1843,6 +1894,10 @@
       const text = L(supportCfg.share || 'Try Wivy: a customizable music player that brings SoundCloud and VK Music together in one app.');
       try { await navigator.clipboard.writeText(text); btn.textContent = L('Copied'); } catch (e) { btn.textContent = L('Failed'); }
       setTimeout(() => { if (btn.isConnected) btn.textContent = L('Copy text'); }, 1500);
+    } else if (a === 'upd-check') {
+      try { if (window.api && window.api.updates) { upd.state = 'checking'; renderBody(true); await window.api.updates.check(); } } catch (e) { /* ничего */ }
+    } else if (a === 'upd-install') {
+      try { if (window.api && window.api.updates) await window.api.updates.install(); } catch (e) { /* ничего */ }
     } else if (a === 'open-feedback') {
       openSupportLink(supportCfg.feedback);
     } else if (a === 'wp-pick') {
@@ -3493,6 +3548,15 @@
       return;
     }
 
+    const updSw = t.closest('[data-upd-auto]');
+    if (updSw) {
+      upd.auto = !upd.auto;
+      updSw.classList.toggle('on', upd.auto);
+      updSw.setAttribute('aria-checked', String(upd.auto));
+      try { if (window.api && window.api.updates) window.api.updates.setAuto(upd.auto); } catch (e) { /* ничего */ }
+      return;
+    }
+
     const sw = t.closest('[data-toggle]');
     if (sw) {
       const key = sw.dataset.toggle;
@@ -3872,6 +3936,14 @@
   if (window.api && window.api.appInfo) Promise.resolve(window.api.appInfo()).then((i) => { info = i || {}; }).catch(() => {});
   if (window.api && window.api.getWallpaper) {
     Promise.resolve(window.api.getWallpaper()).then((w) => { wallpaper = w || null; wp.bitmap = null; applyTheme(); }).catch(() => {});
+  }
+  if (window.api && window.api.patchNotes) Promise.resolve(window.api.patchNotes()).then((n) => { patchNotes = Array.isArray(n) ? n : []; }).catch(() => {});
+  if (window.api && window.api.updates) {
+    Promise.resolve(window.api.updates.get()).then((u) => { if (u) upd = { ...upd, ...u }; }).catch(() => {});
+    window.api.updates.onStatus((u) => {
+      upd = { ...upd, ...u };
+      if (!$('overlay').hidden && ui.section === 'updates') renderBody(true);
+    });
   }
   if (window.api && window.api.supportConfig) Promise.resolve(window.api.supportConfig()).then((c) => { if (c) supportCfg = c; }).catch(() => {});
   // шрифты из папки fonts подгружаются после запуска и сразу применяются

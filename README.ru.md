@@ -14,7 +14,7 @@
 [![Stars](https://img.shields.io/github/stars/Ivyrker/Wivy?style=flat)](https://github.com/Ivyrker/Wivy/stargazers)
 [![Last commit](https://img.shields.io/github/last-commit/Ivyrker/Wivy)](https://github.com/Ivyrker/Wivy/commits/main)
 
-<sub>README обновлён: 14.11.2026</sub>
+<sub>README обновлён: 19.11.2026</sub>
 
 </div>
 
@@ -30,9 +30,13 @@ Wivy — десктопный музыкальный плеер на Electron. �
 
 <div align="center">
 
-| Главная | Страница трека | Настройки |
-| :---: | :---: | :---: |
-| <img src="https://raw.githubusercontent.com/Ivyrker/Wivy/main/screenshots/list.png" alt="Home"/> | <img src="https://raw.githubusercontent.com/Ivyrker/Wivy/main/screenshots/track.png" alt="Track"/> | <img src="https://raw.githubusercontent.com/Ivyrker/Wivy/main/screenshots/settings.png" alt="Settigns"/> |
+| Главня | Страница Трека |
+| :---: | :---: |
+| <img src="https://raw.githubusercontent.com/Ivyrker/Wivy/main/screenshots/list.png" alt="Home"/> | <img src="https://raw.githubusercontent.com/Ivyrker/Wivy/main/screenshots/track.png" alt="Track"/> |
+
+| Настройки | Поиск |
+| :---: | :---: |
+| <img src="https://raw.githubusercontent.com/Ivyrker/Wivy/main/screenshots/settings.png" alt="Settings"/> | <img src="https://raw.githubusercontent.com/Ivyrker/Wivy/main/screenshots/search.png" alt="Search"/> |
 
 </div>
 
@@ -41,6 +45,7 @@ Wivy — десктопный музыкальный плеер на Electron. �
 - **Агрегатор музыки** — SoundCloud, VK Музыка, YouTube Music и Яндекс Музыка в одном приложении. Вкладка «Все треки» объединяет понравившиеся треки со всех подключённых сервисов, а каждый трек помечен иконкой своей платформы.
 - **Синхронизация библиотеки** — лайки, плейлисты, подписки и недавно добавленные треки.
 - **Страницы треков, артистов и плейлистов** — теги, похожие треки и быстрые ссылки на оригинал в сервисе.
+- **Мультиплатформенный Поиск** — ищите музыку на всех платформах одновременно.
 - **Очередь** — перетаскивание, перемешивание, повтор (плейлист / один трек).
 - **Глубокая настройка внешнего вида**
   - темы, акцентный цвет и насыщенность, цвет текста
@@ -58,32 +63,32 @@ Wivy — десктопный музыкальный плеер на Electron. �
 | Сервис | Статус |
 | :--- | :---: |
 | SoundCloud | ✅ |
-| VK Музыка | ✅ |
+| VK Music | ✅/🚧(некритичные баги) |
 | YouTube Music | 🚧 |
 | Яндекс Музыка | 🚧 |
 
-> Поддержка сервисов с пометкой 🚧 находится в активной разработке и может быть неполной.
+> Поддержка сервисов с пометкой 🚧 находится в активной разработке и может быть неполной или пока не поддерживаться.
 
 ## Загрузка
 
 Wivy распространяется только через [GitHub Releases](https://github.com/Ivyrker/Wivy/releases).
 
-> **Релизов пока нет.** Первая сборка появится там, как только будет готова — поставьте звезду или подпишитесь на репозиторий, чтобы не пропустить.
+**[СКАЧАТЬ ЗДЕСЬ](https://github.com/Ivyrker/Wivy/releases/latest)** Wivy может самообновляться если включена настройка
 
 ## Использование
 
 1. Запустите Wivy.
-2. Нажмите на иконку сервиса в левой панели и подключите аккаунт.
+2. Подключите свои аккаунты в настройках.
 3. Дождитесь синхронизации — лайки, плейлисты и артисты появятся во вкладках.
 4. Откройте **Настройки** (шестерёнка внизу левой панели) → **Внешний вид**, чтобы настроить плеер под себя.
 
 ## Локализация
 
-Языки интерфейса хранятся в JSON-файлах в папке [`locales`](locales). Чтобы добавить перевод, скопируйте английский файл, переведите значения и отправьте pull request — или просто положите файл в папку для личного использования.
+Языки интерфейса хранятся в JSON-файлах в папке [`AppData\Roaming\Wivy\languages`](languages). Чтобы добавить перевод, скопируйте английский файл, переведите значения и  положите файл в папку.
 
 ## Участие в разработке
 
-Баг-репорты, идеи и pull request'ы приветствуются. Если нашли проблему, [создайте issue](https://github.com/Ivyrker/Wivy/issues) и опишите шаги воспроизведения (скриншот поможет).
+Баг-репорты и идеи приветствуются. Если нашли проблему, [создайте issue](https://github.com/Ivyrker/Wivy/issues) и опишите проблему (скриншот поможет).
 
 ## Поддержать проект
 
