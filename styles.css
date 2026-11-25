@@ -57,10 +57,12 @@
   --thumb-line: color-mix(in srgb, var(--line-solid) var(--a-scroll), transparent);
   --modal-nav-tint: color-mix(in srgb, var(--panel) var(--a-modal), transparent);
 
-  /* слои обоев: готовые картинки собирает renderer.js под размер окна (--wp-bg для фона окна, --wp-glass для панелей) */
+  /* слой обоев: готовую картинку собирает renderer.js под размер окна (--wp-bg); видео и gif играют живым элементом внутри .wallpaper.
+     Панели прозрачны по-настоящему: их заливка ложится прямо на то, что под ними (обои, видео, родительская панель),
+     а прозрачность каждой панели renderer.js пересчитывает с учётом родителей (см. «Прозрачность» в applyTheme) */
   --wp-bg: none;
-  --wp-glass: none;
-  --base: linear-gradient(var(--bgc, var(--rail)), var(--bgc, var(--rail)));   /* ровный цвет под панелями, когда обоев нет */
+  --wp-glass: none;   /* больше не используются: оставлены, чтобы старые правила ниже не ломались */
+  --base: none;
   --tab-outline: none;     /* контур выбранной вкладки (рисует renderer.js) */
 
   --titlebar: 32px;        /* высота верхнего бара окна (то же число в main.js) */
@@ -742,9 +744,8 @@ kbd { padding: 2px 8px; border: 1px solid var(--line); border-radius: var(--r-1)
 /* =====================================================================
    Слои панелей: у каждой панели свой фон, прозрачность не зависит от родителя
    ===================================================================== */
-/* Фон панели = её заливка (--tint) поверх общего слоя обоев (--wp-glass), прибитого к окну (fixed),
-   а под ним ровный цвет окна (--base). Поэтому ползунок прозрачности любой панели работает сам по себе:
-   карточка может стать полностью прозрачной, даже если основное полотно непрозрачно. */
+/* Фон панели = её заливка (--tint) прямо поверх того, что под ней. Значение ползунка прозрачности — итоговая прозрачность
+   элемента над обоями; renderer.js подбирает заливку так, чтобы вместе с заливкой родителей получилось ровно оно. */
 .canvas, .queue-box, .card, .notice, .row, .result, .btn, .tab, .plat-chip, .section-title, .search, .nav-search,
 .select, .font-preview, kbd, .modal, .modal-nav, .track:hover, .vol-tip, .chip {
   background-color: transparent;
@@ -776,8 +777,17 @@ kbd { padding: 2px 8px; border: 1px solid var(--line); border-radius: var(--r-1)
 .btn:hover:not(:disabled), .tab:hover, button.chip:hover:not(.on) { --tint: var(--controls-tint-hover); }
 .tab.active:hover { --tint: var(--canvas-tint); }
 .search, .nav-search, .select { --tint: var(--input-tint); }
-.modal { --tint: var(--modal-tint); }
+/* окно настроек: заливку получают две его половины (меню и содержимое), каждая со своим значением ползунка; сама рамка прозрачна */
+.modal { --tint: transparent; }
 .modal-nav { --tint: var(--modal-nav-tint); }
+.modal-body { background-color: var(--modal-tint); }
+
+/* стекло: большие панели размывают то, что лежит под ними (обои или видео); без обоев и видео размывать нечего */
+html[data-glass="on"][data-wp="on"]:not([data-noblur="on"]) :is(.titlebar, .rail, .player, .canvas, .queue-box, .modal-nav, .modal-body),
+html[data-glass="on"][data-yt-video="on"]:not([data-noblur="on"]) :is(.titlebar, .rail, .player, .canvas, .queue-box, .modal-nav, .modal-body),
+html[data-glass="on"][data-yt-cover="on"]:not([data-noblur="on"]) :is(.titlebar, .rail, .player, .canvas, .queue-box, .modal-nav, .modal-body) {
+  backdrop-filter: blur(var(--glass-px, 0px)) saturate(1.15);
+}
 
 /* слой обоев под всем интерфейсом (картинку, размытие и положение собирает renderer.js) */
 .wallpaper {
@@ -790,6 +800,9 @@ kbd { padding: 2px 8px; border: 1px solid var(--line); border-radius: var(--r-1)
   background-position: 0 0;
   background-repeat: no-repeat;
 }
+/* живые обои (видео и gif): настоящий элемент внутри слоя обоев; размещение и размытие задаёт renderer.js */
+.wallpaper { overflow: hidden; }
+.wallpaper .wp-live { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; user-select: none; }
 .app { position: relative; z-index: 1; }
 
 /* обводка текста и значков, чтобы они не терялись на пёстрых обоях (значения задаёт renderer.js) */
@@ -1002,8 +1015,16 @@ svg { filter: var(--ol-icon, none); }
 .srow input[type="range"]::-webkit-slider-runnable-track {
   height: 8px;
   border-radius: var(--r-1);
-  background: linear-gradient(to right, var(--accent) var(--fill, 0%), color-mix(in srgb, var(--muted) 30%, transparent) var(--fill, 0%));
+  /* верхний слой темнее: часть ползунка до --lock недоступна (нельзя опуститься ниже родителя) */
+  background:
+    linear-gradient(to right, rgba(0, 0, 0, .5) var(--lock, 0%), transparent var(--lock, 0%)),
+    linear-gradient(to right, var(--accent) var(--fill, 0%), color-mix(in srgb, var(--muted) 30%, transparent) var(--fill, 0%));
 }
+/* вложенность ползунков прозрачности: потомок сдвинут вправо, как подпункт списка, и соединён линией с родителем */
+.srow.op-child { margin-left: calc(var(--lvl) * 22px); position: relative; }
+.srow.op-child::before { content: ""; position: absolute; left: -13px; top: -16px; height: calc(50% + 16px); width: 9px; border-left: 2px solid color-mix(in srgb, var(--muted) 55%, transparent); border-bottom: 2px solid color-mix(in srgb, var(--muted) 55%, transparent); border-bottom-left-radius: 6px; pointer-events: none; }
+.op-sub { display: block; margin-top: 2px; color: var(--muted); font-size: .82em; line-height: 1.25; }
+.srow.op-child label { min-width: 0; }
 .srow input[type="range"]::-webkit-slider-thumb {
   width: 16px;
   height: 16px;
@@ -1066,7 +1087,10 @@ button, input, select, textarea { text-shadow: inherit; }
 .lnk:hover { color: var(--text); text-decoration: underline; }
 .track.playing .t-title .lnk:hover { color: var(--accent-ink); }
 .card[data-open] { cursor: pointer; }
-.np-cover { cursor: pointer; }
+/* нижний плеер: ссылкой является только сам текст, а не вся строка; у обложки рука только если есть страница трека */
+.np-cover.lnk { cursor: pointer; }
+.np-meta .lnk:hover { color: var(--accent-ink); text-decoration: underline; text-underline-offset: 2px; }
+.np-title .t-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .btn.ic { display: inline-flex; align-items: center; gap: 8px; }
 .btn.ic svg { width: 16px; height: 16px; flex-shrink: 0; }
@@ -1424,3 +1448,26 @@ body.booting .titlebar { --tint: color-mix(in srgb, var(--rail) 96%, #000); back
 .upd-line { margin-bottom: 10px; }
 .upd-bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; margin: 6px 0 12px; max-width: 360px; }
 .upd-bar > i { display: block; height: 100%; background: var(--accent); }
+
+/* YouTube Music: кнопка видео в плеере (видна только у треков YouTube Music) */
+#videoBtn[hidden] { display: none; }
+
+/* YouTube Music: страница трека (<webview>) лежит под интерфейсом на всё окно. Мышь в неё не попадает, видно её только при включённом фоне-видео.
+   Панели прозрачны по-настоящему, поэтому видео просвечивает сквозь них с прозрачностью из настроек */
+.yt-video { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; background: #000; z-index: 0; pointer-events: none; user-select: none; opacity: 0; transition: opacity .35s ease; }
+.yt-video.show { opacity: 1; }
+/* чёрная сцена клипов: пока клипы включены и играет трек YouTube Music, она не уходит между треками, поэтому обои не мелькают;
+   на ней плавно появляется клип или большая обложка трека без клипа (размещение и размытие обложки задаёт renderer.js) */
+.yt-stage { position: fixed; inset: 0; z-index: 0; background: #000; overflow: hidden; pointer-events: none; opacity: 0; transition: opacity .35s ease; }
+.yt-stage.show { opacity: 1; }
+.yt-cover { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; opacity: 0; transition: opacity .35s ease; user-select: none; }
+.yt-cover.show { opacity: 1; }
+
+
+/* кнопки разделов на странице исполнителя VK: свой отступ снизу, чтобы они не налезали на следующий блок */
+.btn-row.sec-links { margin-top: 0; margin-bottom: 28px; }
+
+/* страница трека YouTube Music: переключатели разделов «Дальше» и текст песни */
+.yt-secs { margin-bottom: 14px; }
+.lyrics { white-space: pre-wrap; line-height: 1.75; font-size: var(--fs-lg); max-width: 720px; overflow-wrap: anywhere; }
+.lyrics-src { margin-top: 16px; color: var(--muted); font-size: var(--fs-sm); }

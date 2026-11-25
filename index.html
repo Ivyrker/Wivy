@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:; img-src 'self' data: file: blob: https://*.sndcdn.com https://*.vkuser.net https://*.vkuseraudio.net https://*.vkuseraudio.ru https://*.vk-cdn.net https://*.userapi.com https://*.vkuserphoto.ru https://*.vk.com https://*.vk.ru https://*.vk.me https://*.mycdn.me https://*.okcdn.ru; media-src 'self' blob: https://*.sndcdn.com https://*.soundcloud.cloud https://*.vkuser.net https://*.vkuseraudio.net https://*.vkuseraudio.ru https://*.vk-cdn.net https://*.userapi.com https://*.vkuserphoto.ru https://*.vk.com https://*.vk.ru https://*.vk.me https://*.mycdn.me https://*.okcdn.ru; connect-src 'self' https://*.sndcdn.com https://*.soundcloud.cloud https://*.vkuser.net https://*.vkuseraudio.net https://*.vkuseraudio.ru https://*.vk-cdn.net https://*.userapi.com https://*.vkuserphoto.ru https://*.vk.com https://*.vk.ru https://*.vk.me https://*.mycdn.me https://*.okcdn.ru">
+        content="default-src 'self'; frame-src about: https://music.youtube.com; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:; img-src 'self' data: file: blob: https://*.ytimg.com https://*.ggpht.com https://*.googleusercontent.com https://*.sndcdn.com https://*.vkuser.net https://*.vkuseraudio.net https://*.vkuseraudio.ru https://*.vk-cdn.net https://*.userapi.com https://*.vkuserphoto.ru https://*.vk.com https://*.vk.ru https://*.vk.me https://*.mycdn.me https://*.okcdn.ru; media-src 'self' blob: file: https://*.sndcdn.com https://*.soundcloud.cloud https://*.vkuser.net https://*.vkuseraudio.net https://*.vkuseraudio.ru https://*.vk-cdn.net https://*.userapi.com https://*.vkuserphoto.ru https://*.vk.com https://*.vk.ru https://*.vk.me https://*.mycdn.me https://*.okcdn.ru; connect-src 'self' https://*.sndcdn.com https://*.soundcloud.cloud https://*.vkuser.net https://*.vkuseraudio.net https://*.vkuseraudio.ru https://*.vk-cdn.net https://*.userapi.com https://*.vkuserphoto.ru https://*.vk.com https://*.vk.ru https://*.vk.me https://*.mycdn.me https://*.okcdn.ru">
   <title>Wivy</title>
   <link rel="icon" type="image/png" href="icon.png">
   <link rel="stylesheet" href="styles.css">
@@ -95,6 +95,7 @@
           <div class="card-src np-src" id="npSrc"></div>
         </div>
         <button class="icon-btn heart" id="likeBtn" title="Like"></button>
+        <button class="icon-btn" id="videoBtn" title="Video" aria-label="Video" hidden></button>
         <button class="icon-btn" id="queueBtn" aria-label="Queue"></button>
       </div>
     </footer>

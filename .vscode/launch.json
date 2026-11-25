@@ -21,3 +21,5 @@
 //git clean -fd
 
 //npm run dist --win --x64 --prepackaged
+//npm run release
+//$env:GH_TOKEN="..."

@@ -678,4 +678,4 @@ function register(ipcMain, winOf) {
   });
 }
 
-module.exports = { register, _test: { fetchLibrary, collect, trackOf, toPlaylist, toUser, art, resolveStream, AuthError, trackPage, userPage, playlistPage, searchAll, searchMore, hydrate, setLike } };
+module.exports = { register };

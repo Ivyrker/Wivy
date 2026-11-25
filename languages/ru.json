@@ -448,6 +448,23 @@
     "Bad artist link": "Некорректная ссылка на исполнителя",
     "Bad cursor": "Некорректный курсор",
     "Bad track id": "Некорректный номер трека",
-    "Bad playlist id": "Некорректный номер плейлиста"
+    "Bad playlist id": "Некорректный номер плейлиста",
+    "Open the languages folder, copy ru.json under a new name, translate the text to the right of each colon (leave the English keys on the left as they are), and change \"name\" and \"code\". Anything left untranslated stays in English.": "Откройте папку languages, скопируйте ru.json под новым именем, переведите текст справа от каждого двоеточия (английские ключи слева не трогайте) и поменяйте «name» и «code». Всё, что осталось без перевода, будет на английском.",
+    "Share your look": "Поделиться оформлением",
+    "Save your theme, colors, font, transparency and wallpaper into one file to send to a friend, or load a file you received. Loading replaces your current look. Accounts, language and playback settings are not included.": "Сохраните тему, цвета, шрифт, прозрачность и обои в один файл, чтобы отправить другу, или загрузите полученный файл. Загрузка заменяет ваше текущее оформление. Аккаунты, язык и настройки воспроизведения в файл не входят.",
+    "Save to file": "Сохранить в файл",
+    "Load from file": "Загрузить из файла",
+    "Save your look": "Сохранить оформление",
+    "Wivy look": "Оформление Wivy",
+    "Open a look file": "Открыть файл оформления",
+    "Saved": "Сохранено",
+    "Applied": "Применено",
+    "Fonts live in the fonts folder (.woff2, .woff, .ttf, .otf). Open it, add a file or folder, then refresh the list. Fonts that ship with Wivy are restored on every launch; your own stay.": "Шрифты лежат в папке fonts (.woff2, .woff, .ttf, .otf). Откройте её, добавьте файл или папку и обновите список. Шрифты из комплекта Wivy восстанавливаются при каждом запуске, ваши остаются.",
+    "English is built in. Other languages are .json files in the languages folder: add one, press \"Refresh list\", and it shows up here. Languages that ship with Wivy are refreshed on every launch; your own files stay.": "Английский встроен. Остальные языки — это файлы .json в папке languages: добавьте файл, нажмите «Обновить список», и язык появится здесь. Языки из комплекта Wivy обновляются при каждом запуске, ваши файлы остаются.",
+    "Window": "Окно",
+    "Close to tray": "Закрывать в трей",
+    "The close button hides Wivy in the tray and the music keeps playing. Turn it off to close the app right away. To quit while hidden, use the tray menu.": "Кнопка закрытия прячет Wivy в трей, музыка продолжает играть. Выключите, чтобы приложение закрывалось сразу. Чтобы выйти из спрятанного, используйте меню значка в трее.",
+    "Open Wivy": "Открыть Wivy",
+    "Quit": "Выйти"
   }
 }

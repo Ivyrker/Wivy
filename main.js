@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, dialog, session, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog, session, screen, Tray, Menu, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
@@ -91,8 +91,11 @@ function readSupport() {
 
 // Обои: выбранная картинка копируется в папку данных приложения как wallpaper.<расширение>,
 // поэтому исходный файл можно потом переместить или удалить.
-const WP_FILE = /^wallpaper\.(png|jpe?g|webp|gif|bmp|avif)$/i;
-const WP_EXT = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.avif'];
+const WP_FILE = /^wallpaper\.(png|jpe?g|webp|gif|bmp|avif|mp4|m4v|webm|mov)$/i;
+const WP_EXT = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.avif', '.mp4', '.m4v', '.webm', '.mov'];
+const WP_VIDEO = new Set(['.mp4', '.m4v', '.webm', '.mov']);
+// image — обычная картинка (рисуется в canvas), gif и video играют живым элементом под интерфейсом
+const wpKind = (name) => { const e = path.extname(name).toLowerCase(); return WP_VIDEO.has(e) ? 'video' : e === '.gif' ? 'gif' : 'image'; };
 const dataDir = () => app.getPath('userData');
 const wallpaperFiles = () => { try { return fs.readdirSync(dataDir()).filter((n) => WP_FILE.test(n)); } catch (e) { return []; } };
 
@@ -102,14 +105,15 @@ function findWallpaper() {
   const full = path.join(dataDir(), name);
   try {
     const st = fs.statSync(full);
-    return { name, size: st.size, url: pathToFileURL(full).href + '?v=' + Math.round(st.mtimeMs) };
+    return { name, size: st.size, kind: wpKind(name), url: pathToFileURL(full).href + '?v=' + Math.round(st.mtimeMs) };
   } catch (e) { return null; }
 }
 function clearWallpaperFiles() {
   wallpaperFiles().forEach((n) => { try { fs.unlinkSync(path.join(dataDir(), n)); } catch (e) { /* ничего */ } });
 }
 
-// Языки интерфейса: каждый файл languages/*.json — отдельный язык { "name", "code", "strings": { "English phrase": "перевод" } }.
+// Языки интерфейса: каждый файл languages/*.json — отдельный язык { "name", "code", "version": "1.0.1", "strings": { "English phrase": "перевод" } }.
+// version необязателен: это версия Wivy, для которой написан перевод (в настройках показывается, если она не совпадает с версией приложения).
 // Английский встроен в приложение, поэтому файл для него не нужен. Файлы берутся только из папки languages в данных Wivy (roaming);
 // встроенный ru.json лежит рядом с приложением как образец и при первом запуске копируется туда (см. seedUserData).
 const LANGUAGES_DIR = path.join(__dirname, 'languages');
@@ -129,7 +133,8 @@ function readLanguages(dir) {
       for (const [k, v] of Object.entries(raw.strings)) if (typeof v === 'string') strings[k] = v;
       const code = String(raw.code || file.replace(/\.json$/i, '')).trim().slice(0, 20);
       if (!code || code === 'en') continue;
-      out.push({ code, name: String(raw.name || code).slice(0, 40), strings });
+      // version: для какой версии Wivy написан перевод; по нему в настройках видно, что файл устарел
+      out.push({ code, name: String(raw.name || code).slice(0, 40), version: /^\d+(?:\.\d+){0,3}$/.test(String(raw.version || '').trim()) ? String(raw.version).trim() : '', strings });
     } catch (e) { /* битый файл пропускаем */ }
   }
   return out;
@@ -195,7 +200,9 @@ function createWindow() {
     titleBarOverlay: false, // системных кнопок окна нет вообще
     trafficLightPosition: { x: 14, y: 11 }, // только macOS: там остаются системные кнопки
 
-    webPreferences: { preload: path.join(__dirname, 'preload.js') },
+    // фоновая вкладка не замедляется: когда окно спрятано в трей, музыка и переход к следующему треку продолжают работать
+    // webviewTag: под интерфейсом лежит страница YouTube Music (<webview>, см. ytmusic.js); создавать другие <webview> окну не разрешено
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), backgroundThrottling: false, webviewTag: true },
   });
   if (st.maximized) win.maximize();
   win.once('ready-to-show', () => win.show());
@@ -209,8 +216,13 @@ function createWindow() {
   let saveTimer = null;
   const saveSoon = () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => saveWindowState(win), 400); };
   ['resize', 'move', 'maximize', 'unmaximize'].forEach((ev) => win.on(ev, saveSoon));
-  win.on('close', () => { clearTimeout(saveTimer); saveWindowState(win); });
+  win.on('close', (ev) => {
+    clearTimeout(saveTimer);
+    saveWindowState(win);
+    if (winCfg.closeToTray && !quitting) { ev.preventDefault(); ensureTray(); win.hide(); } // крестик прячет окно в трей, выход через меню значка
+  });
 
+  ytmusic.guardWebview(win.webContents);
   win.loadFile('index.html');
 }
 
@@ -218,6 +230,9 @@ function createWindow() {
 require('./soundcloud').register(ipcMain, winOf);
 // VK Музыка: вход через окно vk.com и загрузка библиотеки (подробности в vk.js)
 require('./vk').register(ipcMain, winOf);
+// YouTube Music: вход через окно Google, библиотека через InnerTube, звук и видео со страницы сайта под интерфейсом (подробности в ytmusic.js)
+const ytmusic = require('./ytmusic');
+ytmusic.register(ipcMain, winOf);
 
 /* ---------- Кнопки окна ---------- */
 ipcMain.on('win:minimize', (e) => { const w = winOf(e); if (w) w.minimize(); });
@@ -234,9 +249,9 @@ ipcMain.handle('wallpaper:get', () => findWallpaper());
 ipcMain.handle('wallpaper:pick', async (e, labels) => {
   const text = (v, fallback) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 80) : fallback);
   const options = {
-    title: text(labels && labels.title, 'Choose a wallpaper image'), // подписи приходят из окна приложения, на языке интерфейса
+    title: text(labels && labels.title, 'Choose a wallpaper'), // подписи приходят из окна приложения, на языке интерфейса
     properties: ['openFile'],
-    filters: [{ name: text(labels && labels.filter, 'Images'), extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'avif'] }],
+    filters: [{ name: text(labels && labels.filter, 'Images and video'), extensions: WP_EXT.map((x) => x.slice(1)) }],
   };
   const win = winOf(e);
   const res = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
@@ -253,13 +268,76 @@ ipcMain.handle('wallpaper:pick', async (e, labels) => {
 const WP_MIME = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', bmp: 'image/bmp', avif: 'image/avif' };
 ipcMain.handle('wallpaper:read', () => {
   const name = wallpaperFiles()[0];
-  if (!name) return null;
+  if (!name || wpKind(name) !== 'image') return null;   // видео и gif показываются живым элементом, байты им не нужны
   try {
     const bytes = fs.readFileSync(path.join(dataDir(), name));
     return { bytes, mime: WP_MIME[path.extname(name).slice(1).toLowerCase()] || 'image/png' };
   } catch (e) { return null; }
 });
 ipcMain.handle('wallpaper:clear', () => { clearWallpaperFiles(); return null; });
+
+/* ---------- Оформление папкой: settings.json (параметры в столбик) и файл текущих обоев ---------- */
+const LOOK_FILE = 'settings.json';
+const MAX_LOOK_WALLPAPER = 500 * 1024 * 1024;
+const lookText = (v, fallback) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 80) : fallback);
+// из чужого файла берём только простые значения: числа, строки, true/false и null
+function plainSettings(obj) {
+  const out = {};
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return out;
+  for (const [k, v] of Object.entries(obj).slice(0, 80)) {
+    if (k.length > 30) continue;
+    if (v === null || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v)) || (typeof v === 'string' && v.length <= 80)) out[k] = v;
+  }
+  return out;
+}
+
+ipcMain.handle('theme:export', async (e, look, labels) => {
+  const win = winOf(e);
+  const options = {
+    title: lookText(labels && labels.title, 'Choose where to save your look'),
+    properties: ['openDirectory', 'createDirectory'],
+  };
+  const res = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
+  if (res.canceled || !res.filePaths.length) return { canceled: true };
+  try {
+    // в выбранном месте создаётся своя папка: Wivy look, затем Wivy look 2 и так далее, чужие файлы не трогаем
+    // номер версии Wivy стоит и в названии папки, и первой строкой в settings.json: видно, для какой версии сделано оформление
+    const ver = app.getVersion();
+    const base = (lookText(labels && labels.name, 'Wivy look').replace(/[\\/:*?"<>|]/g, '').trim() || 'Wivy look') + ' ' + ver;
+    let dir = path.join(res.filePaths[0], base);
+    for (let n = 2; fs.existsSync(dir); n++) dir = path.join(res.filePaths[0], `${base} (${n})`);
+    await fs.promises.mkdir(dir);
+    // JSON с отступами: каждый параметр на своей строке
+    await fs.promises.writeFile(path.join(dir, LOOK_FILE), JSON.stringify({ version: ver, ...plainSettings(look) }, null, 2) + '\n', 'utf8');
+    const name = wallpaperFiles()[0];
+    if (name) await fs.promises.copyFile(path.join(dataDir(), name), path.join(dir, name));
+    return { ok: true, path: dir };
+  } catch (err) { return { error: String(err && err.message || err) }; }
+});
+
+ipcMain.handle('theme:import', async (e, labels) => {
+  const win = winOf(e);
+  const options = { title: lookText(labels && labels.title, 'Choose a look folder'), properties: ['openDirectory'] };
+  const res = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
+  if (res.canceled || !res.filePaths.length) return { canceled: true };
+  try {
+    const dir = res.filePaths[0];
+    const file = path.join(dir, LOOK_FILE);
+    if (!fs.existsSync(file)) return { error: 'No settings.json in this folder' };
+    if (fs.statSync(file).size > 1024 * 1024) return { error: 'settings.json is too large' };
+    const settings = plainSettings(JSON.parse(fs.readFileSync(file, 'utf8')));
+    if (!Object.keys(settings).length) return { error: 'settings.json has no settings' };
+    // обои из папки заменяют текущие; если в папке их нет, текущие убираются, чтобы вид совпал с присланным
+    const wpName = fs.readdirSync(dir).find((n) => WP_FILE.test(n));
+    if (wpName && fs.statSync(path.join(dir, wpName)).size > MAX_LOOK_WALLPAPER) return { error: 'Wallpaper file is too large' };
+    clearWallpaperFiles();
+    if (wpName) {
+      await fs.promises.mkdir(dataDir(), { recursive: true });
+      await fs.promises.copyFile(path.join(dir, wpName), path.join(dataDir(), 'wallpaper' + path.extname(wpName).toLowerCase()));
+    }
+    return { settings, wallpaper: findWallpaper(), version: typeof settings.version === 'string' ? settings.version : '' };
+  } catch (err) { return { error: String(err && err.message || err) }; }
+});
 
 /* ---------- Шрифты и сведения о приложении ---------- */
 ipcMain.handle('languages:list', () => listLanguages());
@@ -312,9 +390,16 @@ ipcMain.handle('app:info', () => ({
 }));
 
 /* ---------- Папки fonts и languages в данных Wivy: создаются сразу при запуске ---------- */
-// Встроенные шрифты и ru.json копируются в %APPDATA%\Wivy\fonts и \languages. Недостающие файлы докладываются при каждом запуске;
-// при смене версии приложения встроенные файлы обновляются (их правки теряются: свой перевод сохраняйте под новым именем).
-function seedDir(src, dst, overwrite) {
+// Встроенные шрифты и языки копируются в %APPDATA%\Wivy\fonts и \languages при каждом запуске: новые файлы добавляются,
+// изменившиеся заменяются свежими (так они обновляются вместе с приложением). Файлы пользователя с другими именами не трогаются,
+// а правки встроенных файлов затираются, поэтому свой перевод и шрифты стоит хранить под своими именами.
+function sameFile(a, b) {
+  try {
+    const sa = fs.statSync(a), sb = fs.statSync(b);
+    return sa.size === sb.size && fs.readFileSync(a).equals(fs.readFileSync(b));
+  } catch (e) { return false; }
+}
+function seedDir(src, dst) {
   fs.mkdirSync(dst, { recursive: true });
   let entries = [];
   try { entries = fs.readdirSync(src, { withFileTypes: true }); } catch (e) { return; }
@@ -322,20 +407,63 @@ function seedDir(src, dst, overwrite) {
     const from = path.join(src, e.name);
     const to = path.join(dst, e.name);
     try {
-      if (e.isDirectory()) seedDir(from, to, overwrite);
-      else if (overwrite || !fs.existsSync(to)) fs.copyFileSync(from, to);
+      if (e.isDirectory()) seedDir(from, to);
+      else if (!sameFile(from, to)) fs.copyFileSync(from, to);
     } catch (err) { /* файл занят или нет прав: пропускаем */ }
   }
 }
 function seedUserData() {
-  const marker = path.join(dataDir(), 'seed-version.txt');
-  let last = '';
-  try { last = fs.readFileSync(marker, 'utf8').trim(); } catch (e) { /* первый запуск */ }
-  const overwrite = last !== app.getVersion();
-  seedDir(FONTS_DIR, userFontsDir(), overwrite);
-  seedDir(LANGUAGES_DIR, userLanguagesDir(), overwrite);
-  try { fs.writeFileSync(marker, app.getVersion()); } catch (e) { /* ничего */ }
+  seedDir(FONTS_DIR, userFontsDir());
+  seedDir(LANGUAGES_DIR, userLanguagesDir());
 }
+
+/* ---------- Закрытие в трей ---------- */
+const winCfgFile = () => path.join(dataDir(), 'window-settings.json');
+const winCfg = { closeToTray: false }; // по умолчанию крестик закрывает приложение сразу
+try { const r = JSON.parse(fs.readFileSync(winCfgFile(), 'utf8')); if (typeof r.closeToTray === 'boolean') winCfg.closeToTray = r.closeToTray; } catch (e) { /* настройки по умолчанию */ }
+let tray = null;
+let quitting = false;
+let trayLabels = { open: 'Open Wivy', quit: 'Quit' }; // подписи меню приходят из окна приложения на языке интерфейса
+app.on('before-quit', () => { quitting = true; });
+
+function showMainWindow() {
+  const w = BrowserWindow.getAllWindows()[0];
+  if (!w || w.isDestroyed()) return;
+  if (w.isMinimized()) w.restore();
+  w.show();
+  w.focus();
+}
+function buildTrayMenu() {
+  if (!tray) return;
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: trayLabels.open, click: showMainWindow },
+    { type: 'separator' },
+    { label: trayLabels.quit, click: () => { quitting = true; app.quit(); } },
+  ]));
+}
+function ensureTray() {
+  if (!winCfg.closeToTray) { if (tray) { tray.destroy(); tray = null; } return; }
+  if (tray) return;
+  try {
+    const icon = process.platform === 'win32' ? ICON : nativeImage.createFromPath(ICON).resize({ width: 22, height: 22 });
+    tray = new Tray(icon);
+    tray.setToolTip('Wivy');
+    tray.on('click', showMainWindow);
+    buildTrayMenu();
+  } catch (e) { tray = null; }
+}
+ipcMain.handle('window:get-config', () => ({ ...winCfg }));
+ipcMain.handle('window:set-close-to-tray', (_e, on) => {
+  winCfg.closeToTray = !!on;
+  try { fs.writeFileSync(winCfgFile(), JSON.stringify(winCfg)); } catch (e) { /* ничего */ }
+  ensureTray();
+  return { ...winCfg };
+});
+ipcMain.handle('window:set-tray-labels', (_e, labels) => {
+  const t = (v, d) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 40) : d);
+  trayLabels = { open: t(labels && labels.open, 'Open Wivy'), quit: t(labels && labels.quit, 'Quit') };
+  buildTrayMenu();
+});
 
 /* ---------- Автообновление (electron-updater, релизы на GitHub) ---------- */
 const updateFile = () => path.join(dataDir(), 'update-settings.json');
@@ -386,7 +514,7 @@ ipcMain.handle('updates:install', () => { if (autoUpdater && upd.state === 'down
 app.setAppUserModelId('com.wivy.app'); // чтобы Windows показывала значок приложения в панели задач и в уведомлениях (совпадает с appId в package.json)
 
 app.whenReady().then(() => {
-  seedUserData(); // папки fonts и languages появляются сразу, ещё до открытия окна
+  seedUserData(); // папки fonts и languages появляются сразу и обновляются встроенными файлами, ещё до открытия окна
   // Уведомления Windows берут имя и значок приложения из ярлыка в меню «Пуск» с тем же appUserModelId.
   // Установщик создаёт такой ярлык сам; если приложение запущено без установки (из исходников, из распакованной папки),
   // ярлыка нет и Windows подписывает уведомления «Electron». Поэтому при необходимости делаем ярлык сами.
@@ -422,6 +550,7 @@ app.whenReady().then(() => {
   if (process.platform === 'darwin' && app.dock && fs.existsSync(ICON)) { try { app.dock.setIcon(ICON); } catch (e) { /* ничего */ } } // значок в Dock при запуске из исходников
   setupUpdater();
   createWindow();
+  ensureTray();
   scheduleUpdates();
 });
 

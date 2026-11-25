@@ -53,6 +53,30 @@ contextBridge.exposeInMainWorld('api', {
     like: (track, on) => ipcRenderer.invoke('vk:like', { vkId: track && track.vkId, hash: track && track.hash, trackCode: track && track.trackCode }, !!on), // добавить трек в аудиозаписи или убрать
   },
 
+  // YouTube Music: вход через окно Google; cookie остаются в основном процессе. Звук и видео играет страница сайта в <webview> под интерфейсом,
+  // а здесь только команды: attach / play / state / control / video / stop
+  ytmusic: {
+    status: () => ipcRenderer.invoke('yt:status'),
+    login: () => ipcRenderer.invoke('yt:login'),
+    logout: () => ipcRenderer.invoke('yt:logout'),
+    library: () => ipcRenderer.invoke('yt:library'),
+    search: (query) => ipcRenderer.invoke('yt:search', String(query || '')),
+    playlist: (ref) => ipcRenderer.invoke('yt:playlist', { url: ref && ref.url }),
+    like: (track, on) => ipcRenderer.invoke('yt:like', { ytId: track && track.ytId }, !!on),
+    user: (ref) => ipcRenderer.invoke('yt:artist', { url: ref && ref.url }), // страница исполнителя по адресу канала
+    track: (ref) => ipcRenderer.invoke('yt:track', { url: ref && ref.url }), // страница трека: «Дальше», разделы, признак текста песни
+    trackSection: (ref) => ipcRenderer.invoke('yt:track-section', { videoId: String((ref && ref.videoId) || ''), chip: Number(ref && ref.chip) || 0 }), // другой раздел «Дальше»
+    lyrics: (ref) => ipcRenderer.invoke('yt:lyrics', { videoId: String((ref && ref.videoId) || '') }),
+    attach: (webContentsId) => ipcRenderer.invoke('yt:attach', Number(webContentsId)), // сообщить главному процессу номер <webview> плеера
+    play: (videoId, volume, video) => ipcRenderer.invoke('yt:play', String(videoId || ''), Number(volume), !!video), // video: клипы включены, страница сразу переключится на «Video»
+    state: () => ipcRenderer.invoke('yt:state'),
+    control: (cmd, arg) => ipcRenderer.invoke('yt:control', String(cmd), Number(arg) || 0), // pause | resume | seek | volume
+    video: (on) => ipcRenderer.invoke('yt:video', !!on),
+    stop: () => ipcRenderer.invoke('yt:stop'),
+    openLink: (url) => ipcRenderer.invoke('yt:open-link', url),
+    onVideo: (callback) => ipcRenderer.on('yt:video', (_event, v) => callback(v === 'none' ? 'none' : !!v)), // true: клип идёт; false: клипа пока нет; 'none': у трека нет клипа
+  },
+
   // языки интерфейса из локальной папки languages
   listLanguages: () => ipcRenderer.invoke('languages:list'),
   openLanguagesFolder: () => ipcRenderer.invoke('languages:open-folder'),
@@ -66,8 +90,19 @@ contextBridge.exposeInMainWorld('api', {
   pickWallpaper: (labels) => ipcRenderer.invoke('wallpaper:pick', { title: labels && labels.title, filter: labels && labels.filter }), // подписи окна выбора файла, на языке интерфейса
   clearWallpaper: () => ipcRenderer.invoke('wallpaper:clear'),
 
+  // оформление одним файлом: настройки внешнего вида и обои (подписи окон приходят на языке интерфейса)
+  exportTheme: (look, labels) => ipcRenderer.invoke('theme:export', look, { title: labels && labels.title, filter: labels && labels.filter, name: labels && labels.name }),
+  importTheme: (labels) => ipcRenderer.invoke('theme:import', { title: labels && labels.title, filter: labels && labels.filter }),
+
   appInfo: () => ipcRenderer.invoke('app:info'),
   patchNotes: () => ipcRenderer.invoke('app:patchnotes'),
+
+  // поведение окна: крестик закрывает сразу или прячет в трей; подписи меню значка в трее
+  windowBehavior: {
+    get: () => ipcRenderer.invoke('window:get-config'),
+    setCloseToTray: (on) => ipcRenderer.invoke('window:set-close-to-tray', !!on),
+    setTrayLabels: (labels) => ipcRenderer.invoke('window:set-tray-labels', { open: labels && labels.open, quit: labels && labels.quit }),
+  },
 
   // автообновление: состояние, выключатель, проверка вручную, установка скачанного
   updates: {

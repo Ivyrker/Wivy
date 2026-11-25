@@ -164,8 +164,8 @@
   // элементы интерфейса, у которых есть свой ползунок прозрачности
   const OPACITY = [
     ['aTitle', 'Title bar'], ['aRail', 'Side panel'], ['aMain', 'Window background and top bar'],
-    ['aCanvas', 'Main canvas'], ['aCards', 'Cards and rows'], ['aControls', 'Buttons, fields and headings'],
-    ['aPlayer', 'Bottom player'], ['aQueue', 'Queue window'], ['aModal', 'Settings window'], ['aScroll', 'Scrollbars (main and others)'], ['aLines', 'Lines and borders'],
+    ['aCanvas', 'Main canvas'], ['aCards', 'Cards and rows'], ['aControls', 'Buttons, fields and headings'], ['aQueue', 'Queue window'],
+    ['aPlayer', 'Bottom player'], ['aModal', 'Settings window'], ['aScroll', 'Scrollbars (main and others)'], ['aLines', 'Lines and borders'],
   ];
 
   const SOURCE_MODES = {
@@ -187,27 +187,29 @@
     theme: 'dark', tint: null, sat: 80, textColor: 'auto', textSat: 70, sourceMode: 'title', sourceShow: 'auto',
     font: 'auto', fontSize: 14, pattern: 'dots', patternAlpha: 70, lang: 'en', uiScale: 100,
     aTitle: 100, aRail: 100, aMain: 100, aCanvas: 100, aCards: 100, aControls: 100, aPlayer: 100, aQueue: 100, aModal: 100, aScroll: 100, aLines: 100,
-    glassBlur: 10, wpFit: 'cover', wpPos: 'c', wpBlur: 0, textOutline: 50,
+    glassBlur: 10, glassOffOnVideo: true, glassOffOnCover: true, wpFit: 'cover', wpPos: 'c', wpBlur: 0, textOutline: 50,
+    ytClips: false, cvFit: 'contain', cvPos: 'c', cvBlur: 0,   // ytClips: кнопка клипов в плеере (запоминается); cv*: показ обложек треков без клипа
     bgColor: 'auto', bgSat: 60, outlineColor: 'auto', outlineIcons: false, outlineStyle: 'soft',
     notifyTrack: false, notifyUnfocused: true, notifySilent: false,
     autoplay: true, rememberVolume: true, volume: 70, autoSync: true, profileSrc: 'auto', syncEvery: 5,
     hideLocked: true, searchSort: 'relevance',
   };
-  const BOOLS = ['notifyTrack', 'notifyUnfocused', 'notifySilent', 'autoplay', 'rememberVolume', 'outlineIcons', 'autoSync', 'hideLocked'];
+  const BOOLS = ['notifyTrack', 'notifyUnfocused', 'notifySilent', 'autoplay', 'rememberVolume', 'outlineIcons', 'autoSync', 'hideLocked', 'glassOffOnVideo', 'glassOffOnCover', 'ytClips'];
   // числовые настройки и их допустимые границы
   const NUMS = { aTitle: [0, 100], aRail: [0, 100], aMain: [0, 100], aCanvas: [0, 100], aCards: [0, 100],
-                 aPlayer: [0, 100], aQueue: [0, 100], aScroll: [0, 100], aModal: [0, 100], aControls: [0, 100], aLines: [0, 100], glassBlur: [0, 24], wpBlur: [0, 40], textOutline: [0, 100], bgSat: [0, 100], uiScale: [75, 150], syncEvery: [1, 240] };
+                 aPlayer: [0, 100], aQueue: [0, 100], aScroll: [0, 100], aModal: [0, 100], aControls: [0, 100], aLines: [0, 100], glassBlur: [0, 24], wpBlur: [0, 40], cvBlur: [0, 40], textOutline: [0, 100], bgSat: [0, 100], uiScale: [75, 150], syncEvery: [1, 240] };
   const settings = { ...DEFAULTS };
-  try {
-    const saved = JSON.parse(localStorage.getItem(STORE_KEY)) || {};
+  // проверяет сохранённые (или полученные из файла оформления) значения и переносит в settings только допустимые
+  function applySaved(saved) {
     const pct = (v) => Number.isFinite(v) && v >= 0 && v <= 100;
     if (THEMES[saved.theme]) settings.theme = saved.theme;
+    if (saved.tint === null) settings.tint = null;
     if (TINTS.some((p) => p.id === saved.tint)) settings.tint = saved.tint;
     if (pct(saved.sat)) settings.sat = Math.round(saved.sat);
     if (saved.textColor === 'auto' || TEXT_FIXED[saved.textColor] || TINTS.some((p) => p.id === saved.textColor)) settings.textColor = saved.textColor;
     if (pct(saved.textSat)) settings.textSat = Math.round(saved.textSat);
     if (SOURCE_MODES[saved.sourceMode]) settings.sourceMode = saved.sourceMode;
-    if (['auto', 'soundcloud', 'vk'].includes(saved.profileSrc)) settings.profileSrc = saved.profileSrc;
+    if (['auto', 'soundcloud', 'vk', 'ytmusic'].includes(saved.profileSrc)) settings.profileSrc = saved.profileSrc;
     if (SOURCE_SHOW[saved.sourceShow]) settings.sourceShow = saved.sourceShow;
     else if (saved.sourceMode === 'off') settings.sourceShow = 'off';   // прежнее значение «скрыто»
     if (PATTERNS[saved.pattern]) settings.pattern = saved.pattern;
@@ -223,7 +225,10 @@
     if (saved.outlineStyle === 'soft' || saved.outlineStyle === 'sharp') settings.outlineStyle = saved.outlineStyle;
     if (WP_FITS[saved.wpFit]) settings.wpFit = saved.wpFit;
     if (WP_POS[saved.wpPos]) settings.wpPos = saved.wpPos;
-  } catch (e) { /* первый запуск или хранилище недоступно */ }
+    if (WP_FITS[saved.cvFit]) settings.cvFit = saved.cvFit;
+    if (WP_POS[saved.cvPos]) settings.cvPos = saved.cvPos;
+  }
+  try { applySaved(JSON.parse(localStorage.getItem(STORE_KEY)) || {}); } catch (e) { /* первый запуск или хранилище недоступно */ }
   const saveSettings = () => { try { localStorage.setItem(STORE_KEY, JSON.stringify(settings)); } catch (e) { /* ничего */ } };
 
   const tintColor = (p) => hsl(p.h, settings.sat, p.l);
@@ -267,7 +272,7 @@
   /* ---------- Данные ---------- */
   // Подключены SoundCloud (soundcloud.js) и VK Музыка (vk.js): их библиотеки приходят из основного процесса.
   // У остальных платформ данных нет, поэтому вместо треков показывается плашка «Demo data».
-  const emptyData = () => ({ connected: false, recent: [], recommended: [], liked: [], playlists: [], following: [], artists: [] });   // artists: исполнители из библиотеки (не подписки)
+  const emptyData = () => ({ connected: false, recent: [], recommended: [], liked: [], playlists: [], following: [], artists: [], shelves: [] });   // shelves: подборки главной (пока только у YouTube Music): { title, tracks, lists }   // artists: исполнители из библиотеки (не подписки)
   const DATA = {};
   PLATFORMS.forEach((p) => { DATA[p.id] = emptyData(); });
   const trackIds = new Map();   // один и тот же трек всегда получает один и тот же внутренний номер
@@ -320,7 +325,10 @@
   const LOCKS_KEY = 'wivy-locks';
   let lockStore = {};
   try { lockStore = JSON.parse(localStorage.getItem(LOCKS_KEY)) || {}; } catch (e) { lockStore = {}; }
-  const trackKey = (src, t) => `${src}:${t.scId || t.vkId}`;
+  // у YouTube Music замков нет (прежние версии помечали треки ошибочно): стираем сохранённые
+  Object.keys(lockStore).forEach((k) => { if (k.startsWith('ytmusic:')) delete lockStore[k]; });
+  try { localStorage.setItem(LOCKS_KEY, JSON.stringify(lockStore)); } catch (e) { /* ничего */ }
+  const trackKey = (src, t) => `${src}:${t.scId || t.vkId || t.ytId}`;
   function rememberLock(t, kind) {
     const key = trackKey(t.source, t);
     lockStore[key] = kind;
@@ -382,7 +390,7 @@
     const v = likeStore[likeKey(t)];
     return v ? !!v.on : likedKeys.has(likeKey(t));
   };
-  const SNAP = ['scId', 'vkId', 'hash', 'trackCode', 'title', 'artist', 'artistId', 'artistUrl', 'dur', 'art', 'url'];
+  const SNAP = ['scId', 'vkId', 'ytId', 'hash', 'trackCode', 'title', 'artist', 'artistId', 'artistUrl', 'dur', 'art', 'url'];
   const snapshot = (t) => Object.fromEntries(SNAP.filter((f) => t[f] !== undefined).map((f) => [f, t[f]]).concat([['source', t.source]]));
   const likeApi = (src) => { const s = SVCS[src]; const api = s ? s.api() : null; return api && api.like ? api : null; };
 
@@ -442,7 +450,7 @@
     const s = SVCS[t.source];
     const same = () => likeStore[k] && likeStore[k].at === at;
     let r;
-    try { r = await likeApi(t.source).like({ scId: t.scId, vkId: t.vkId, hash: t.hash, trackCode: t.trackCode }, on); } catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
+    try { r = await likeApi(t.source).like({ scId: t.scId, vkId: t.vkId, ytId: t.ytId, hash: t.hash, trackCode: t.trackCode }, on); } catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
     if (r && r.ok) {
       if (same()) likeStore[k].sent = true;
       verifyLater(s);
@@ -500,6 +508,7 @@
       playlists: lib.playlists.map(tag),
       following: lib.following.map(tag),
       artists: (lib.artists || []).map(tag),
+      shelves: (lib.shelves || []).map((s) => ({ title: s.title, tracks: (s.tracks || []).map(track), lists: (s.lists || []).map(tag) })),
     };
     if (id === 'vk') { applyVkCounts(); regVkPlaylists(DATA.vk.playlists); }
     rebuildAll();
@@ -633,12 +642,13 @@
     setTimeout(() => [...new Set(old.filter(Boolean))].forEach((u) => URL.revokeObjectURL(u)), 1500); // старые картинки освобождаем с запасом
   }
 
-  const wallpaperSig = () => [wallpaper ? wallpaper.url : '', settings.wpFit, settings.wpPos, settings.wpBlur, settings.glassBlur,
+  const wallpaperSig = () => [wallpaper ? wallpaper.url : '', settings.wpFit, settings.wpPos, settings.wpBlur,
                               window.innerWidth, window.innerHeight, window.devicePixelRatio || 1].join('|');
 
   async function rebuildWallpaper() {
     const seq = ++wp.seq;
-    if (!wallpaper) { setWpLayers(null, null); wp.sig = wallpaperSig(); return; }
+    syncLiveWallpaper();
+    if (!wallpaper || wpIsLive()) { setWpLayers(null, null); wp.sig = wallpaperSig(); return; }
     if (!wp.bitmap || wp.key !== wallpaper.url) await loadWallpaperBitmap();
     if (seq !== wp.seq) return;
     if (!wp.bitmap) { setWpLayers(null, null); return; }
@@ -647,14 +657,119 @@
     const scale = Math.min(window.devicePixelRatio || 1, 2, 4096 / Math.max(W, H));
     const bg = await renderLayer(wp.bitmap, W, H, scale, settings.wpFit, settings.wpPos, settings.wpBlur, 1);
     if (seq !== wp.seq) return;
-    const glass = settings.glassBlur > 0
-      ? await renderLayer(wp.bitmap, W, H, scale, settings.wpFit, settings.wpPos, settings.wpBlur + settings.glassBlur, 1.15)
-      : bg;
-    if (seq !== wp.seq) return;
-    setWpLayers(bg, glass);
+    setWpLayers(bg, null);   // «стекло» теперь делает backdrop-filter панелей, отдельный размытый слой не нужен
     wp.sig = wallpaperSig();
   }
   const scheduleWallpaper = (delay = 120) => { clearTimeout(wp.timer); wp.timer = setTimeout(rebuildWallpaper, delay); };
+
+  /* ---------- Прозрачность ---------- */
+  // Значение ползунка — ИТОГОВАЯ прозрачность элемента над обоями (или видео), такой, какой её видно на экране.
+  // Панели лежат друг на друге и их заливки складываются, поэтому собственную заливку элемента считаем от прозрачности родителей:
+  // видимая непрозрачность = 1 - (1 - родитель) * (1 - заливка), отсюда заливка = 1 - (1 - значение) / (1 - родитель).
+  // Элемент не может быть прозрачнее того, на чём лежит, поэтому ползунок потомка не опускается ниже ползунка родителя,
+  // а при подъёме родителя потомки поднимаются вместе с ним.
+  const OP_PARENTS = { aCanvas: ['aMain'], aQueue: ['aMain'], aCards: ['aCanvas', 'aQueue'], aControls: ['aCards'] };
+  const OP_ORDER = ['aMain', 'aCanvas', 'aQueue', 'aCards', 'aControls'];   // родители раньше потомков
+  const opMin = (k) => Math.max(0, ...(OP_PARENTS[k] || []).map((p) => settings[p]));
+  function enforceOpacity() {
+    let changed = false;
+    OP_ORDER.forEach((k) => { const m = opMin(k); if (settings[k] < m) { settings[k] = m; changed = true; } });
+    return changed;
+  }
+  function syncOpacitySliders() {
+    OPACITY.forEach(([k]) => {
+      const el = document.getElementById('sl-' + k);
+      if (!el) return;
+      el.value = settings[k];
+      if (typeof setFill === 'function') setFill(el);
+      const v = document.getElementById('val-' + k);
+      if (v) v.textContent = settings[k] + '%';
+    });
+  }
+  const opAlpha = (s, p) => (s >= 0.999 ? 1 : p >= 0.999 ? 0 : Math.max(0, 1 - (1 - s) / (1 - p)));   // заливка элемента с итоговой прозрачностью s на родителе с p
+  const opPct = (a) => (a * 100).toFixed(2) + '%';
+  let alphaCss = '';
+  function applyOpacityModel(root) {
+    const S = {};
+    OPACITY.forEach(([k]) => { S[k] = settings[k] / 100; });
+    const M = S.aMain;
+    const effCanvas = Math.max(S.aCanvas, M);
+    const effQueue = Math.max(S.aQueue, M);
+    // собственные заливки; значения без родителя (бар, панель, плеер, окно, фон окна) равны ползункам
+    const own = { aTitle: S.aTitle, aRail: S.aRail, aMain: M, aCanvas: opAlpha(S.aCanvas, M), aCards: S.aCards, aControls: S.aControls,
+                  aPlayer: S.aPlayer, aQueue: opAlpha(S.aQueue, M), aModal: S.aModal, aScroll: S.aScroll, aLines: S.aLines };
+    Object.entries(own).forEach(([k, a]) => root.style.setProperty('--' + k.replace(/^a/, 'a-').toLowerCase(), opPct(a)));
+    // карточки и элементы управления зависят от того, на чём лежат: для каждого места своя заливка
+    const decl = (P, cards, ctl) => {
+      let t = '';
+      if (cards) { const a = opPct(opAlpha(S.aCards, P)); t += `--cards-tint:color-mix(in srgb,var(--panel) ${a},transparent);--cards-tint-hover:color-mix(in srgb,var(--hover) ${a},transparent);`; }
+      if (ctl) { const a = opPct(opAlpha(S.aControls, P)); t += `--controls-tint:color-mix(in srgb,var(--panel) ${a},transparent);--controls-tint-hover:color-mix(in srgb,var(--hover) ${a},transparent);--input-tint:color-mix(in srgb,var(--rail) ${a},transparent);`; }
+      return t;
+    };
+    const CARD = ':is(.card,.row,.notice,.result)';
+    const css = [
+      `.main{${decl(M, true, true)}}`,
+      `.canvas{${decl(effCanvas, true, true)}}`,
+      `.queue-box{${decl(effQueue, true, true)}}`,
+      `.modal{${decl(S.aModal, true, true)}}`,
+      `.player{${decl(S.aPlayer, false, true)}}`,
+      `.rail{${decl(S.aRail, false, true)}}`,
+      `.titlebar{${decl(S.aTitle, false, true)}}`,
+      `.canvas ${CARD}{${decl(Math.max(S.aCards, effCanvas), false, true)}}`,
+      `.queue-box ${CARD}{${decl(Math.max(S.aCards, effQueue), false, true)}}`,
+      `.modal ${CARD}{${decl(Math.max(S.aCards, S.aModal), false, true)}}`,
+    ].join('\n');
+    if (css === alphaCss) return;
+    alphaCss = css;
+    let st = document.getElementById('wivy-alpha');
+    if (!st) { st = document.createElement('style'); st.id = 'wivy-alpha'; document.head.appendChild(st); }
+    st.textContent = css;
+  }
+
+  // пока на фоне играет видео или gif (обои, видео YouTube Music), размытие всех панелей можно отключить настройкой: поверх движущейся картинки оно «слетает»
+  function syncBlurOff() {
+    const d = document.documentElement.dataset;
+    const video = wpIsLive() || d.ytVideo === 'on';   // клип YouTube Music или живые обои
+    const cover = d.ytCover === 'on';                 // обложка трека YouTube Music без клипа
+    d.noblur = (settings.glassOffOnVideo && video) || (settings.glassOffOnCover && cover) ? 'on' : 'off';
+  }
+  // размещение, позиция и размытие обложки на сцене клипов (те же настройки, что у обоев)
+  function ytCoverApply() {
+    const img = document.getElementById('ytCover');
+    if (!img) return;
+    img.style.objectFit = WP_CSS_FIT[settings.cvFit] || 'contain';
+    img.style.objectPosition = (WP_POS[settings.cvPos] || WP_POS.c)[0];
+    const b = settings.cvBlur;
+    img.style.filter = b > 0 ? `blur(${b}px)` : '';
+    img.style.transform = b > 0 ? `scale(${(1 + b / 120).toFixed(3)})` : '';
+  }
+
+  // живые обои: видео и gif играют настоящим элементом внутри слоя обоев (картинки рисуются в canvas, см. выше)
+  const WP_CSS_FIT = { stretch: 'fill', contain: 'contain', cover: 'cover', center: 'none', tile: 'cover' };
+  const wpIsLive = () => !!wallpaper && (wallpaper.kind === 'video' || wallpaper.kind === 'gif');
+  function syncLiveWallpaper() {
+    const host = $('wallpaper');
+    let el = host.querySelector('.wp-live');
+    if (!wpIsLive()) { if (el) { if (el.pause) el.pause(); el.remove(); } return; }
+    const tag = wallpaper.kind === 'video' ? 'VIDEO' : 'IMG';
+    if (el && (el.tagName !== tag || el.dataset.src !== wallpaper.url)) { if (el.pause) el.pause(); el.remove(); el = null; }
+    if (!el) {
+      el = document.createElement(tag.toLowerCase());
+      el.className = 'wp-live';
+      el.dataset.src = wallpaper.url;
+      el.setAttribute('aria-hidden', 'true');
+      el.draggable = false;
+      if (tag === 'VIDEO') { el.muted = true; el.loop = true; el.autoplay = true; el.playsInline = true; el.disablePictureInPicture = true; }
+      el.src = wallpaper.url;
+      host.appendChild(el);
+      if (tag === 'VIDEO') el.play().catch(() => {});
+    }
+    el.style.objectFit = WP_CSS_FIT[settings.wpFit] || 'cover';
+    el.style.objectPosition = (WP_POS[settings.wpPos] || WP_POS.c)[0];
+    const b = settings.wpBlur;
+    el.style.filter = b > 0 ? `blur(${b}px)` : '';
+    el.style.transform = b > 0 ? `scale(${(1 + b / 120).toFixed(3)})` : '';   // небольшое увеличение, чтобы размытые края не светлели
+  }
 
   let lineHex = '#3e3e3e';
 
@@ -693,14 +808,18 @@
 
     root.dataset.theme = settings.theme;
     root.dataset.glass = settings.glassBlur > 0 ? 'on' : 'off';
+    root.style.setProperty('--glass-px', settings.glassBlur + 'px');
+    ytCoverApply();
+    syncBlurOff();
     root.dataset.wp = wallpaper ? 'on' : 'off';
     root.style.colorScheme = th.dark ? 'dark' : 'light';
 
-    // прозрачность каждого элемента
-    OPACITY.forEach(([key]) => root.style.setProperty('--' + key.replace(/^a/, 'a-').toLowerCase(), settings[key] + '%'));
+    // прозрачность каждого элемента: ползунки не могут противоречить иерархии, остальное считает модель
+    if (enforceOpacity()) saveSettings();
+    applyOpacityModel(root);
 
     // обои: слои пересобираем только когда поменялось то, от чего они зависят; без обоев слои убираем сразу
-    if (!wallpaper) { if (root.style.getPropertyValue('--wp-bg') !== 'none') { clearTimeout(wp.timer); wp.seq++; setWpLayers(null, null); } wp.sig = wallpaperSig(); }
+    if (!wallpaper) { syncLiveWallpaper(); if (root.style.getPropertyValue('--wp-bg') !== 'none') { clearTimeout(wp.timer); wp.seq++; setWpLayers(null, null); } wp.sig = wallpaperSig(); }
     else if (wallpaperSig() !== wp.sig) scheduleWallpaper();
 
     // обводка текста и значков: работает и с обоями, и без них; цвет противоположен цвету текста
@@ -764,6 +883,7 @@
         ${profileChoice('auto', 'Automatic', 'Follows the platform you are viewing, then the others.')}
         ${profileChoice('soundcloud', 'SoundCloud', 'Uses its name and picture first.')}
         ${profileChoice('vk', 'VK Music', 'Uses its name and picture first.')}
+        ${profileChoice('ytmusic', 'YouTube Music', 'Uses its name and picture first.')}
       </div>
       <div class="profile-pick">
         <span class="avatar big">${profileImg ? `<img src="${esc(profileImg)}" alt="">` : `<b>${esc(letter)}</b>`}</span>
@@ -953,6 +1073,7 @@
       </div>`;
   };
 
+  const trackCardRadio = (t) => trackCard(t).replace('data-track=', 'data-radio="1" data-track=');   // карточка из подборки главной YouTube Music
   const trackCard = (t) => {
     const src = platform(t.source);
     const mode = markMode();
@@ -1030,15 +1151,23 @@
       const seenA = new Set();
       const artists = noRecs ? [...data.following, ...data.artists].filter((x) => !seenA.has(x.url || x.name) && seenA.add(x.url || x.name)).slice(0, 6) : [];
       const lists = noRecs ? data.playlists.slice(0, 6) : [];
-      visibleTracks = recent.concat(more, filler);
+      // подборки главной (YouTube Music): клипы, альбомы, новые релизы, плейлисты. Трек из них играет очередь «всё, что показано на главной»,
+      // альбом и плейлист открываются своей страницей, и очередь берётся оттуда
+      const shelves = (data.shelves || []).filter((s) => s.tracks.length || s.lists.length);
+      const seenS = new Set();
+      const shelfTracks = shelves.flatMap((s) => s.tracks).filter((x) => !seenS.has(x.id) && seenS.add(x.id));
+      const shelvesHtml = shelves.map((s) => sectionHtml(s.title,
+        (s.tracks.length ? cardRow(s.tracks.map(trackCardRadio).join('')) : '') + (s.lists.length ? grid(s.lists.map(playlistCard).join('')) : ''))).join('');
+      visibleTracks = recent.concat(more, filler, shelfTracks);
       const recentTitle = state.platform === 'vk' ? 'Recently added' : 'Recently played';
       el.innerHTML = `
         ${recent.length ? `<div class="section"><div class="section-title">${L(recentTitle)}</div>${cardRow(recent.map(trackCard).join(''))}</div>` : ''}
         ${more.length ? `<div class="section"><div class="section-title">${L('Recommended')}</div>${trackList(more)}</div>` : ''}
+        ${shelvesHtml}
         ${artists.length ? sectionHtml(L(state.platform === 'vk' ? 'Artists in your library' : 'Artists'), grid(artists.map(userCard).join(''))) : ''}
         ${lists.length ? sectionHtml(L('Playlists'), grid(lists.map(playlistCard).join(''))) : ''}
         ${filler.length ? sectionHtml(L('From your library'), trackList(filler)) : ''}
-        ${recent.length || more.length || filler.length ? '' : emptyHtml()}`;
+        ${recent.length || more.length || filler.length || shelves.length ? '' : emptyHtml()}`;
     } else if (tab === 'liked') {
       const likedList = likedTracks(data);
       visibleTracks = likedList;
@@ -1185,9 +1314,10 @@
     ] },
     { title: 'App', items: [
       { id: 'playback', name: 'Playback', icon: 'play' },
+      { id: 'window', name: 'Window', icon: 'window' },
       { id: 'appearance', name: 'Appearance', icon: 'palette', subs: [
-        { id: 'theme', name: 'Theme and colors' }, { id: 'wall', name: 'Wallpaper and transparency' },
-        { id: 'font', name: 'Font and size' }, { id: 'panels', name: 'Panels and marks' } ] },
+        { id: 'theme', name: 'Theme and colors' }, { id: 'wall', name: 'Wallpaper and transparency' }, { id: 'clips', name: 'Clips and video' },
+        { id: 'font', name: 'Font and size' }, { id: 'panels', name: 'Panels and marks' }, { id: 'share', name: 'Share your look' } ] },
       { id: 'language', name: 'Language', icon: 'globe' },
       { id: 'integrations', name: 'Integrations', icon: 'plug' },
       { id: 'updates', name: 'Updates', icon: 'refresh' },
@@ -1203,7 +1333,7 @@
   // единый список настроек: из него берутся и заголовки на страницах, и поиск
   const DEFS = [
     { id: 'acc-platforms', section: 'accounts', sub: 'platforms', title: 'Connected platforms',
-      desc: 'Sign in to SoundCloud or VK Music in a window inside Wivy. YouTube Music and Yandex Music are coming later.' },
+      desc: 'Sign in to SoundCloud or VK Music in a window inside Wivy. YouTube Music works too; Yandex Music is coming later.' },
     { id: 'acc-sync', section: 'accounts', sub: 'sync', title: 'Library auto-update',
       desc: 'While Wivy is open, it quietly checks your connected platforms for new likes, playlists and follows.' },
     { id: 'acc-profile', section: 'accounts', sub: 'profile', title: 'Name and picture',
@@ -1237,21 +1367,31 @@
     { id: 'ap-outline-color', section: 'appearance', sub: 'theme', title: 'Outline color',
       desc: 'The color of the thin outline around text and icons. Strength and style are in "Text and icon outline" under Wallpaper and transparency.' },
     { id: 'ap-font', section: 'appearance', sub: 'font', title: 'Font',
-      desc: 'Fonts live in the fonts folder (.woff2, .woff, .ttf, .otf). Open it, add a file or folder, then refresh the list. Your own fonts stay after updates.' },
+      desc: 'Fonts live in the fonts folder (.woff2, .woff, .ttf, .otf). Open it, add a file or folder, then refresh the list. Fonts that ship with Wivy are restored on every launch; your own stay.' },
     { id: 'ap-fontsize', section: 'appearance', sub: 'font', title: 'Font size',
       desc: 'Base text size; other text sizes scale with it. To resize everything, use Interface scale.' },
     { id: 'ap-wallpaper', section: 'appearance', sub: 'wall', title: 'Wallpaper',
-      desc: 'Use your own image as the background (PNG, JPG, WebP, GIF, BMP or AVIF). Wivy keeps a copy, so you can delete the original.' },
+      desc: 'Use your own picture, animated GIF or video as the background (PNG, JPG, WebP, GIF, BMP, AVIF, MP4, WebM or MOV). Video plays muted and on a loop. Wivy keeps a copy, so you can delete the original.' },
     { id: 'ap-wp-fit', section: 'appearance', sub: 'wall', title: 'Wallpaper placement',
       desc: 'Stretch, fit, fill, original size or tiled, plus where the picture sits: a corner, an edge or the center.' },
     { id: 'ap-wp-blur', section: 'appearance', sub: 'wall', title: 'Wallpaper blur',
       desc: 'Softens the picture so text on top is easier to read.' },
     { id: 'ap-glass', section: 'appearance', sub: 'wall', title: 'Glass effect',
-      desc: 'Panels blur and slightly bend the wallpaper beneath them. Visible when panels are semi-transparent. 0 turns it off.' },
+      desc: 'Panels blur the wallpaper or video beneath them. Visible when panels are semi-transparent. 0 turns it off.' },
+    { id: 'ap-clips', section: 'appearance', sub: 'clips', title: 'Clips behind the interface',
+      desc: 'Plays the video clip of YouTube Music tracks as the background. A track with no clip shows its big cover on black instead. This is the clip button in the player, which remembers its state.' },
+    { id: 'ap-cover-fit', section: 'appearance', sub: 'clips', title: 'Cover placement',
+      desc: 'How the cover of a YouTube Music track without a clip sits on the black background: stretched, fitted, filled, original size, and where it sits.' },
+    { id: 'ap-cover-blur', section: 'appearance', sub: 'clips', title: 'Cover blur',
+      desc: 'Softens the cover so text on top is easier to read.' },
+    { id: 'ap-glass-video', section: 'appearance', sub: 'clips', title: 'No blur over clips and video wallpaper',
+      desc: 'Removes the glass blur from all windows while a video clip or an animated wallpaper plays in the background. Blur over a moving picture can flicker or drop out. Turn off to keep the blur.' },
+    { id: 'ap-glass-cover', section: 'appearance', sub: 'clips', title: 'No blur over covers',
+      desc: 'The same for YouTube Music tracks without a clip: removes the glass blur from all windows while their cover is shown in the background.' },
     { id: 'ap-outline', section: 'appearance', sub: 'wall', title: 'Text and icon outline',
       desc: 'A thin outline that keeps text and icons readable on busy wallpapers. Set its strength, style and whether icons get it; the color is under Theme and colors. 0 turns it off.' },
     { id: 'ap-opacity', section: 'appearance', sub: 'wall', title: 'Element transparency',
-      desc: 'A separate slider for every part of the interface: title bar, side panel, window background (shared with the top bar), main canvas, cards and rows, buttons, fields and headings, player, queue, settings, scrollbars and lines. 100% is opaque (the default), 0% is fully transparent.' },
+      desc: 'A separate slider for every part of the interface: title bar, side panel, window background (shared with the top bar), main canvas, cards and rows, buttons, fields and headings, player, queue, settings, scrollbars and lines. Each slider is the final transparency of that element over the wallpaper or video, as you see it: 100% is opaque (the default), 0% is fully transparent. An element cannot be more transparent than the one it sits on, so a slider cannot go below its parent: the main canvas stays at or above the window background, cards at or above the canvas and the queue, buttons and fields at or above the cards. Raising a parent raises the ones above it.' },
     { id: 'ap-pattern', section: 'appearance', sub: 'panels', title: 'Panel pattern',
       desc: 'A subtle pattern on the side panel, title bar and player: dots, grid, crosses or none. The slider sets how visible it is.' },
     { id: 'ap-marks', section: 'appearance', sub: 'panels', title: 'Track source',
@@ -1260,8 +1400,10 @@
       desc: 'Where platform marks appear: only where platforms mix (the default), everywhere, or nowhere.' },
     { id: 'ap-scale', section: 'appearance', sub: 'font', title: 'Interface scale',
       desc: 'Scales the whole interface: text, icons and spacing. Applies when you release the slider. Font size above changes text only.' },
+    { id: 'ap-share', section: 'appearance', sub: 'share', title: 'Share your look',
+      desc: 'Save your theme, colors, font, transparency and wallpaper (picture, GIF or video) into a folder: settings.json with one setting per line, plus the wallpaper file. Send the folder to a friend, or load a folder you received. Loading replaces your current look. Accounts, language and playback settings are not included.' },
     { id: 'lang-select', section: 'language', sub: null, title: 'Interface language',
-      desc: 'English is built in. Other languages are .json files in the languages folder: add one, press "Refresh list", and it shows up here. Your own files stay after updates.' },
+      desc: 'English is built in. Other languages are .json files in the languages folder: add one, press "Refresh list", and it shows up here. Languages that ship with Wivy are refreshed on every launch; your own files stay.' },
     { id: 'lang-custom', section: 'language', sub: null, title: 'Your own translation',
       desc: 'Open the languages folder, copy ru.json under a new name, translate the text to the right of each colon (leave the English keys on the left as they are), and change "name" and "code". Anything left untranslated stays in English.' },
     { id: 'int-rpc', section: 'integrations', sub: null, title: 'Discord status',
@@ -1270,6 +1412,8 @@
       desc: 'Scrobble the tracks you play to Last.fm.' },
     { id: 'int-media', section: 'integrations', sub: null, title: 'Media keys and system player',
       desc: 'Control playback with your keyboard media keys and the system media panel.' },
+    { id: 'win-tray', section: 'window', sub: null, title: 'Close to tray',
+      desc: 'The close button hides Wivy in the tray and the music keeps playing. Turn it off to close the app right away. To quit while hidden, use the tray menu.' },
     { id: 'upd-auto', section: 'updates', sub: null, title: 'Automatic updates',
       desc: 'Wivy checks for a new version in the background and installs it when you close the app. When off, it never checks on its own.' },
     { id: 'upd-status', section: 'updates', sub: null, title: 'Check for updates',
@@ -1284,7 +1428,7 @@
     { id: 'sup-feedback', section: 'support', sub: 'more', title: 'Ideas and bug reports',
       desc: 'Suggest an improvement or report something that is not working.' },
     { id: 'about-app', section: 'about', sub: null, title: 'About Wivy',
-      desc: 'A customizable player for your music services. SoundCloud and VK Music work today; YouTube Music and Yandex Music are on the way.' },
+      desc: 'A customizable player for your music services. SoundCloud, VK Music and YouTube Music work today; Yandex Music is on the way.' },
     { id: 'about-dist', section: 'about', sub: null, title: 'Distribution',
       desc: 'The original Wivy is distributed only through the author’s GitHub page. Copies from other sources are not official and may be changed or unsafe.' },
     { id: 'about-info', section: 'about', sub: null, title: 'System information',
@@ -1469,9 +1613,17 @@
     const opts = [{ code: 'en', name: 'English' }, ...lang.list];
     return `
       <select class="select" id="langSelect" aria-label="${L('Interface language')}">
-        ${opts.map((o) => `<option value="${esc(o.code)}" ${o.code === lang.code ? 'selected' : ''}>${esc(o.name)}</option>`).join('')}
+        ${opts.map((o) => `<option value="${esc(o.code)}" ${o.code === lang.code ? 'selected' : ''}>${esc(o.name)}${o.version ? ` · v${esc(o.version)}` : ''}</option>`).join('')}
       </select>
-      ${lang.list.length ? '' : `<p class="setting-desc">${L('The languages folder is missing or empty, so only English is available.')}</p>`}`;
+      ${lang.list.length ? '' : `<p class="setting-desc">${L('The languages folder is missing or empty, so only English is available.')}</p>`}
+      ${(() => {
+        // у файла перевода есть номер версии Wivy, для которой он написан: если он не совпадает с версией приложения, часть новых текстов будет английской
+        const cur = lang.list.find((x) => x.code === lang.code);
+        if (!cur || !info.version) return '';
+        const msg = !cur.version ? L('This translation file has no version number. Add \"version\": \"{0}\" to it.', info.version)
+          : cur.version !== info.version ? L('This translation was written for version {0}, the app is {1}: newer texts may appear in English.', cur.version, info.version) : '';
+        return msg ? `<p class="setting-desc">${esc(msg)}</p>` : '';
+      })()}`;
   }
 
   const customLangControls = () => `
@@ -1536,6 +1688,7 @@
   let supportCfg = { author: '', message: '', share: '', feedback: '', links: [] };
 
   /* --- обновления программы и заметки об обновлениях (всё считает основной процесс, см. main.js) --- */
+  let winCfg = { closeToTray: false };
   let upd = { auto: true, state: 'idle', version: '', percent: 0, error: '', packaged: true };
   let patchNotes = [];
 
@@ -1591,7 +1744,7 @@
   function wallpaperControls() {
     return `
       <div class="wp-box">
-        <div class="wp-thumb" id="wpThumb" style="${wallpaper ? `background-image:${esc(`url("${wallpaper.url}")`)}` : ''}">${wallpaper ? '' : L('No wallpaper')}</div>
+        <div class="wp-thumb" id="wpThumb" style="${wallpaper && wallpaper.kind !== 'video' ? `background-image:${esc(`url("${wallpaper.url}")`)}` : ''}">${wallpaper ? (wallpaper.kind === 'video' ? `<video src="${esc(wallpaper.url)}" muted preload="metadata" style="width:100%;height:100%;object-fit:cover"></video>` : '') : L('No wallpaper')}</div>
         <div>
           <div class="wp-name" id="wpName">${wallpaper ? esc(wallpaper.name) + ', ' + fmtSize(wallpaper.size) : L('No file selected')}</div>
           <div class="btn-row" style="margin-top:0">
@@ -1602,18 +1755,20 @@
       </div>`;
   }
 
-  function fitControls() {
-    const stretch = settings.wpFit === 'stretch';
+  // p: 'wp' (обои) или 'cv' (обложки треков YouTube Music без клипа): те же настройки размещения
+  function fitControls(p = 'wp') {
+    const fit = settings[p + 'Fit'], pos = settings[p + 'Pos'];
+    const stretch = fit === 'stretch';
     return `
       <div class="wp-fit-row">
         <div class="field"><span>${L('Placement')}</span>
-          <select class="select" id="wpFit" aria-label="${L('Wallpaper placement')}">
-            ${Object.keys(WP_FITS).map((k) => `<option value="${k}" ${settings.wpFit === k ? 'selected' : ''}>${WP_FITS[k].name}</option>`).join('')}
+          <select class="select" id="${p}Fit" aria-label="${L(p === 'wp' ? 'Wallpaper placement' : 'Cover placement')}">
+            ${Object.keys(WP_FITS).map((k) => `<option value="${k}" ${fit === k ? 'selected' : ''}>${WP_FITS[k].name}</option>`).join('')}
           </select>
         </div>
         <div class="field"><span>${L('Position')}</span>
-          <div class="pos-grid ${stretch ? 'off' : ''}" id="posGrid">
-            ${Object.keys(WP_POS).map((k) => `<button class="pos ${settings.wpPos === k ? 'sel' : ''}" data-wp-pos="${k}" title="${WP_POS[k][1]}" aria-label="${WP_POS[k][1]}"></button>`).join('')}
+          <div class="pos-grid ${stretch ? 'off' : ''}" id="${p === 'wp' ? 'posGrid' : 'cvPosGrid'}">
+            ${Object.keys(WP_POS).map((k) => `<button class="pos ${pos === k ? 'sel' : ''}" data-${p}-pos="${k}" title="${WP_POS[k][1]}" aria-label="${WP_POS[k][1]}"></button>`).join('')}
           </div>
         </div>
       </div>`;
@@ -1627,7 +1782,20 @@
       <span class="val" id="val-${key}">${value}${unit}</span>
     </div>`;
 
-  const opacityControls = () => OPACITY.map(([k, name]) => sliderRow(k, name, settings[k], 0, 100, '%')).join('')
+  // иерархия прозрачности: потомок сдвинут вправо (как подпункт) и подписан, ниже чего он опуститься не может
+  const OP_LEVEL = { aCanvas: 1, aCards: 2, aControls: 3, aQueue: 1 };
+  const opName = (k) => (OPACITY.find(([x]) => x === k) || [k, k])[1];
+  const opRow = (k, name) => {
+    const lvl = OP_LEVEL[k] || 0;
+    const sub = OP_PARENTS[k] ? `<small class="op-sub">${L('Not below')}: ${OP_PARENTS[k].map((p) => L(opName(p))).join(', ')}</small>` : '';
+    return `
+    <div class="srow${lvl ? ' op-child' : ''}"${lvl ? ` style="--lvl:${lvl}"` : ''}>
+      <label for="sl-${k}">${L(name)}${sub}</label>
+      <input type="range" id="sl-${k}" data-set="${k}" data-unit="%" min="0" max="100" value="${settings[k]}">
+      <span class="val" id="val-${k}">${settings[k]}%</span>
+    </div>`;
+  };
+  const opacityControls = () => OPACITY.map(([k, name]) => opRow(k, name)).join('')
     + `<div class="btn-row"><button class="btn" data-action="op-reset">${L('Make everything opaque')}</button></div>`;
 
   function pageHtml(id) {
@@ -1657,16 +1825,23 @@
                            + blockRow('ap-glass', sliderRow('glassBlur', L('Effect strength'), settings.glassBlur, 0, 24, ' px'))
                            + blockRow('ap-outline', outlineControls())
                            + blockRow('ap-opacity', opacityControls()))
+              + wrap('clips', toggleRow('ap-clips', 'ytClips') + blockRow('ap-cover-fit', fitControls('cv'))
+                            + blockRow('ap-cover-blur', sliderRow('cvBlur', L('Blur'), settings.cvBlur, 0, 40, ' px'))
+                            + toggleRow('ap-glass-video', 'glassOffOnVideo') + toggleRow('ap-glass-cover', 'glassOffOnCover'))
               + wrap('font', blockRow('ap-font', fontControls()) + blockRow('ap-fontsize', fontSizeControls()) + blockRow('ap-scale', scaleControls()))
               + wrap('panels', blockRow('ap-pattern', patternControls())
                              + blockRow('ap-marks', `<div class="choices">${['icon', 'title', 'label'].map(choice).join('')}</div>`)
-                             + blockRow('ap-marks-show', `<div class="choices">${Object.keys(SOURCE_SHOW).map(showChoice).join('')}</div>`));
+                             + blockRow('ap-marks-show', `<div class="choices">${Object.keys(SOURCE_SHOW).map(showChoice).join('')}</div>`))
+              + wrap('share', buttonRow('ap-share', `<button class="btn" data-action="look-export">${L('Save to folder')}</button><button class="btn" data-action="look-import">${L('Load from folder')}</button>`));
         break;
       case 'language':
         inner = blockRow('lang-select', languageControls()) + blockRow('lang-custom', customLangControls());
         break;
       case 'integrations':
         inner = soonRow('int-rpc') + soonRow('int-lastfm') + soonRow('int-media');
+        break;
+      case 'window':
+        inner = `<div class="setting" data-setting="win-tray"><div class="setting-row">${head('win-tray')}<button class="switch ${winCfg.closeToTray ? 'on' : ''}" role="switch" aria-checked="${!!winCfg.closeToTray}" data-tray-toggle="1"><i></i></button></div></div>`;
         break;
       case 'updates':
         inner = `<div class="setting" data-setting="upd-auto"><div class="setting-row">${head('upd-auto')}<button class="switch ${upd.auto ? 'on' : ''}" role="switch" aria-checked="${!!upd.auto}" data-upd-auto="1"><i></i></button></div></div>`
@@ -1844,6 +2019,39 @@
     } catch (e) { /* нет прав на уведомления */ }
   }
 
+  // «Оформление», которым можно поделиться: тема, цвета, шрифт, прозрачность, панели и обои.
+  // Аккаунты, язык, уведомления и настройки воспроизведения в файл не попадают.
+  const LOOK_KEYS = ['theme', 'tint', 'sat', 'textColor', 'textSat', 'sourceMode', 'sourceShow', 'font', 'fontSize', 'pattern', 'patternAlpha', 'uiScale',
+    'aTitle', 'aRail', 'aMain', 'aCanvas', 'aCards', 'aControls', 'aPlayer', 'aQueue', 'aModal', 'aScroll', 'aLines',
+    'glassBlur', 'glassOffOnVideo', 'glassOffOnCover', 'cvFit', 'cvPos', 'cvBlur', 'wpFit', 'wpPos', 'wpBlur', 'textOutline', 'bgColor', 'bgSat', 'outlineColor', 'outlineIcons', 'outlineStyle'];
+
+  async function exportLook() {
+    const look = {};
+    LOOK_KEYS.forEach((k) => { look[k] = settings[k]; });
+    const r = await window.api.exportTheme(look, { title: L('Choose where to save your look'), name: 'Wivy look' });
+    return r && r.ok ? 'ok' : (r && r.canceled ? 'canceled' : 'fail');
+  }
+
+  let lookVersion = '';   // версия Wivy, для которой сделано загруженное оформление
+  async function importLook() {
+    const r = await window.api.importTheme({ title: L('Choose a look folder') });
+    if (!r || r.canceled) return 'canceled';
+    if (!r.settings) return 'fail';
+    const picked = {};
+    LOOK_KEYS.forEach((k) => { if (k in r.settings) picked[k] = r.settings[k]; });
+    // имя шрифта попадает в стили, поэтому из чужого файла берём только обычные имена
+    if (typeof picked.font === 'string' && picked.font !== 'auto' && !/^[\p{L}\p{N} .+_-]{1,60}$/u.test(picked.font)) delete picked.font;
+    lookVersion = typeof r.version === 'string' ? r.version : '';
+    applySaved(picked);
+    saveSettings();
+    wallpaper = r.wallpaper || null;
+    wp.bitmap = null;
+    applyScale();
+    applyTheme();
+    refreshLanguage();
+    return 'ok';
+  }
+
   async function resetSettings() {
     Object.assign(settings, DEFAULTS);
     setLanguage(settings.lang);
@@ -1854,13 +2062,18 @@
     wp.bitmap = null;
     $('vol').value = settings.volume;
     setFill($('vol'));
-    audio.volume = settings.volume / 100;
+    mediaVolume(settings.volume / 100);
     applyTheme();
     refreshLanguage();
   }
 
   // язык сменился (или список языков обновился): перерисовываем всё, что содержит текст
+  function syncTrayLabels() {
+    try { if (window.api && window.api.windowBehavior) window.api.windowBehavior.setTrayLabels({ open: L('Open Wivy'), quit: L('Quit') }); } catch (e) { /* ничего */ }
+  }
+
   function refreshLanguage() {
+    syncTrayLabels();
     renderAll();
     updatePlayer();
     labelWindowButtons();
@@ -1894,6 +2107,14 @@
       const text = L(supportCfg.share || 'Try Wivy: a customizable music player that brings SoundCloud and VK Music together in one app.');
       try { await navigator.clipboard.writeText(text); btn.textContent = L('Copied'); } catch (e) { btn.textContent = L('Failed'); }
       setTimeout(() => { if (btn.isConnected) btn.textContent = L('Copy text'); }, 1500);
+    } else if (a === 'look-export' || a === 'look-import') {
+      const was = btn.textContent;
+      let res = 'fail';
+      try { if (window.api && window.api.exportTheme) res = a === 'look-export' ? await exportLook() : await importLook(); } catch (e) { res = 'fail'; }
+      if (res !== 'canceled' && btn.isConnected) {
+        btn.textContent = res === 'ok' ? L(a === 'look-export' ? 'Saved' : 'Applied') + (a === 'look-import' && lookVersion && info.version && lookVersion !== info.version ? ` · v${lookVersion}` : '') : L('Failed');
+        setTimeout(() => { if (btn.isConnected) btn.textContent = was; }, 1800);
+      }
     } else if (a === 'upd-check') {
       try { if (window.api && window.api.updates) { upd.state = 'checking'; renderBody(true); await window.api.updates.check(); } } catch (e) { /* ничего */ }
     } else if (a === 'upd-install') {
@@ -1901,7 +2122,7 @@
     } else if (a === 'open-feedback') {
       openSupportLink(supportCfg.feedback);
     } else if (a === 'wp-pick') {
-      try { if (window.api && window.api.pickWallpaper) wallpaper = await window.api.pickWallpaper({ title: L('Choose a wallpaper image'), filter: L('Images') }); } catch (e) { /* ничего */ }
+      try { if (window.api && window.api.pickWallpaper) wallpaper = await window.api.pickWallpaper({ title: L('Choose a wallpaper'), filter: L('Images and video') }); } catch (e) { /* ничего */ }
       wp.bitmap = null;
       applyTheme();
       renderBody(true);
@@ -1939,13 +2160,149 @@
   function setFill(input) {
     const max = Number(input.max) || 1;
     input.style.setProperty('--fill', `${(Number(input.value) / max) * 100}%`);
+    // у ползунков прозрачности недоступная часть (ниже родителя) рисуется темнее
+    const k = input.dataset && input.dataset.set;
+    if (k && OP_PARENTS[k]) input.style.setProperty('--lock', `${(opMin(k) / max) * 100}%`);
+    else input.style.removeProperty('--lock');
   }
 
   // положение бегунка берётся прямо из звука (с долями секунды), а не из целых секунд
+  // YouTube Music играет не в <audio>, а в скрытом окне сайта (ytmusic.js): положение и состояние приходят опросом, между опросами время идёт по часам
+  const yt_ = { on: false, t: 0, at: 0, playing: false, ended: false, poll: 0, busy: false, seekTimer: 0 };
+  const ytClock = () => Math.max(0, yt_.playing ? yt_.t + (Date.now() - yt_.at) / 1000 : yt_.t);
+  const ytCtl = (cmd, arg) => { const a = yt.api(); if (a && a.control) Promise.resolve(a.control(cmd, arg)).catch(() => {}); };
+  function mediaSeek(sec) {
+    if (!yt_.on) { audio.currentTime = sec; return; }
+    yt_.t = sec; yt_.at = Date.now(); yt_.ended = false;
+    clearTimeout(yt_.seekTimer);
+    yt_.seekTimer = setTimeout(() => ytCtl('seek', sec), 120);   // бегунок шлёт много значений подряд
+  }
+  function mediaVolume(v) {
+    audio.volume = v;
+    if (yt_.on) ytCtl('volume', v);
+  }
+  function mediaPause() {
+    if (yt_.on) { yt_.t = ytClock(); yt_.playing = false; ytCtl('pause'); } else audio.pause();
+  }
+  function mediaResume() {
+    if (yt_.on) { yt_.at = Date.now(); yt_.playing = true; yt_.ended = false; ytCtl('resume'); startSeekLoop(); return Promise.resolve(); }
+    return audio.play();
+  }
+  // YouTube Music играет в настоящей странице сайта: <webview> лежит под всем интерфейсом на всё окно (ytmusic.js управляет им).
+  // Мышь и клавиши в него не попадают (pointer-events: none). Он прозрачен, пока фон-видео выключен, и показывается при включённом;
+  // панели лежат поверх с прозрачностью из настроек (стили: .yt-video и html[data-yt-video] в styles.css)
+  const ytGuest = { el: null, ready: null, why: '' };
+  function ytGuestReady() {
+    if (ytGuest.ready) return ytGuest.ready;
+    const api = yt.api();
+    if (!api || !api.attach) { ytGuest.why = 'no attach API'; return Promise.resolve(false); }
+    const wv = document.createElement('webview');
+    wv.className = 'yt-video';
+    wv.setAttribute('partition', 'persist:ytmusic');
+    wv.setAttribute('src', 'about:blank');
+    wv.setAttribute('tabindex', '-1');
+    wv.setAttribute('aria-hidden', 'true');
+    const stage = ytStageEl().stage;   // страница лежит над чёрной сценой: между клипами обои не показываются
+    stage.parentNode.insertBefore(wv, stage.nextSibling);
+    ytGuest.el = wv;
+    ytGuest.why = '';
+    ytGuest.ready = new Promise((resolve) => {
+      let done = false, iv = 0, timer = 0;
+      const finish = (ok, why) => {
+        if (done) return;
+        done = true; clearInterval(iv); clearTimeout(timer);
+        if (!ok) {   // следующая попытка создаст страницу заново
+          ytGuest.why = why;
+          if (wv.parentNode) wv.remove();
+          if (ytGuest.el === wv) ytGuest.el = null;
+          ytGuest.ready = null;
+        }
+        resolve(!!ok);
+      };
+      timer = setTimeout(() => finish(false, 'the page did not start (timeout)'), 10000);
+      // номер страницы доступен только после её загрузки: пробуем, пока не получится
+      iv = setInterval(async () => {
+        let id = 0;
+        try { id = wv.getWebContentsId(); } catch (e) { return; }
+        if (!id || done) return;
+        clearInterval(iv);
+        let r = null;
+        try { r = await api.attach(id); } catch (e) { r = { error: String((e && e.message) || e) }; }
+        finish(r && r.ok, 'attach failed: ' + ((r && r.error) || '?'));
+      }, 150);
+    });
+    return ytGuest.ready;
+  }
+  // Фон клипов: чёрная «сцена» под интерфейсом. Пока включены клипы и играет трек YouTube Music, она остаётся на месте всё время,
+  // а на ней плавно сменяются клип (страница сайта) и большая обложка трека без клипа. Поэтому между треками обои не мелькают.
+  const ytBg = { state: 'load', tok: 0, shown: '' };   // state: 'load' (грузится), 'video' (клип идёт), 'none' (у трека нет клипа)
+  function ytStageEl() {
+    let stage = document.getElementById('ytStage');
+    if (!stage) {
+      stage = document.createElement('div');
+      stage.className = 'yt-stage';
+      stage.id = 'ytStage';
+      stage.setAttribute('aria-hidden', 'true');
+      const img = document.createElement('img');
+      img.className = 'yt-cover';
+      img.id = 'ytCover';
+      img.alt = '';
+      img.draggable = false;
+      stage.appendChild(img);
+      const wp = $('wallpaper');
+      wp.parentNode.insertBefore(stage, wp.nextSibling);
+      ytCoverApply();
+    }
+    return { stage, cover: stage.querySelector('#ytCover') };
+  }
+  // большая обложка: у картинок Google размер задаётся в адресе, у превью видео пробуем самую крупную (если её нет, остаётся обычная)
+  const bigArt = (u) => String(u || '')
+    .replace(/=w\d+-h\d+[^\s]*$/, '=w1200-h1200-l90-rj').replace(/=s\d+[^\s]*$/, '=s1200')
+    .replace(/\/(?:hq|mq|sd)?default\.jpg(\?.*)?$/, '/maxresdefault.jpg');
+  function ytCoverShow(t) {
+    const img = ytStageEl().cover;
+    // если у трека нет своей обложки, берём превью его видео
+    const small = t ? (t.art || (t.ytId ? `https://i.ytimg.com/vi/${t.ytId}/hqdefault.jpg` : '')) : '';
+    const url = bigArt(small);
+    if (!url) { img.classList.remove('show'); ytBg.shown = ''; ytBg.tok++; return; }
+    if (ytBg.shown === url) { img.classList.add('show'); return; }
+    // другая обложка: прежняя гаснет, затем плавно появляется новая
+    const tok = ++ytBg.tok;
+    const swap = () => {
+      if (tok !== ytBg.tok) return;
+      img.onload = () => { if (tok === ytBg.tok) img.classList.add('show'); };
+      img.onerror = () => { if (tok === ytBg.tok && small && img.getAttribute('src') !== small) img.src = small; };
+      ytBg.shown = url;
+      img.src = url;
+      if (img.complete && img.naturalWidth) img.classList.add('show');   // картинка уже в кэше
+    };
+    if (img.classList.contains('show')) { img.classList.remove('show'); setTimeout(swap, 300); } else swap();
+  }
+  function ytBgSync() {
+    const t = current();
+    const active = !!(settings.ytClips && yt_.on && t && t.source === 'ytmusic');
+    const { stage } = ytStageEl();
+    stage.classList.toggle('show', active);
+    if (ytGuest.el) ytGuest.el.classList.toggle('show', active && ytBg.state === 'video');
+    const cover = active && ytBg.state === 'none';
+    ytCoverShow(cover ? t : null);
+    const d = document.documentElement.dataset;
+    d.ytVideo = active && ytBg.state === 'video' ? 'on' : 'off';
+    d.ytCover = cover ? 'on' : 'off';
+    syncBlurOff();
+  }
+  // кнопка клипов в плеере или переключатель в настройках: состояние запоминается
+  function ytClipsApply() {
+    const a = yt.api();
+    ytBg.state = 'load';
+    if (a && a.video && yt_.on) Promise.resolve(a.video(settings.ytClips)).catch(() => {});   // страница сама сообщит, есть ли у трека клип
+    ytBgSync();
+    updatePlayer();
+  }
   let seekDrag = false;
   const smoothTime = () => {
     if (seekDrag || !player.playing || player.loading) return player.elapsed;
-    const t = audio.currentTime;
+    const t = yt_.on ? ytClock() : audio.currentTime;
     return Number.isFinite(t) ? t : player.elapsed;
   };
   let seekRaf = 0;
@@ -2007,16 +2364,22 @@
     $('npCover').style.background = t ? coverBg(t.title + t.artist, t.art) : `${MASCOT}, var(--panel)`;
     $('npCover').innerHTML = src && mode === 'icon'
       ? `<span class="cover-ico np-ico" style="${srcVars(src)}" title="${esc(src.name)}">${I[src.icon]}</span>` : '';
+    // ссылкой становится только сам текст (не вся строка), с подсказкой при наведении; пустое место справа ничего не открывает
+    const canTrack = !!(t && (t.scId || t.vkId || t.ytId));
+    const canArtist = !!(t && artistAttrs(t) && !player.error && !player.loading);
     $('npTitle').innerHTML = (src && mode === 'title' ? srcIcon(src, 'sm') : '')
-      + `<span class="t-text">${esc(t ? t.title : L('Nothing is playing'))}</span>`;
-    $('npArtist').textContent = !t ? L('Pick a track') : player.error ? player.error : player.loading ? L('Loading…') : t.artist;
+      + `<span class="t-text${canTrack ? ' lnk' : ''}"${canTrack ? ` title="${esc(L('Open track page'))}"` : ''}>${esc(t ? t.title : L('Nothing is playing'))}</span>`;
+    const artistText = !t ? L('Pick a track') : player.error ? player.error : player.loading ? L('Loading…') : t.artist;
+    $('npArtist').innerHTML = canArtist ? `<span class="lnk" title="${esc(L('Open artist page'))}">${esc(artistText)}</span>` : esc(artistText);
     $('npSrc').setAttribute('style', src ? srcVars(src) : '');
     $('npSrc').innerHTML = src && mode === 'label' ? `<i class="dot"></i>${esc(src.name)}` : '';
     $('playBtn').innerHTML = player.playing ? I.pause : I.play;
     $('playBtn').title = L(player.playing ? 'Pause' : 'Play');
     $('likeBtn').classList.toggle('on', isLiked(t));
-    $('npTitle').classList.toggle('lnk', !!(t && (t.scId || t.vkId)));
-    $('npArtist').classList.toggle('lnk', !!(t && artistAttrs(t) && !player.error && !player.loading));
+    $('videoBtn').hidden = !(t && t.source === 'ytmusic' && yt.api() && yt.api().video);
+    $('videoBtn').classList.toggle('on', settings.ytClips);
+    $('videoBtn').title = L(settings.ytClips ? 'Turn off clips in the background' : 'Clips in the background');
+    $('npCover').classList.toggle('lnk', canTrack);
 
     $('shuffleBtn').classList.toggle('on', player.shuffle);
     $('shuffleBtn').title = L(player.shuffle ? 'Shuffle on' : 'Shuffle off');
@@ -2302,7 +2665,8 @@
   function toggle() {
     if (!current()) return;
     player.playing = !player.playing;
-    if (!player.playing) audio.pause();
+    if (!player.playing) mediaPause();
+    else if (yt_.on) mediaResume();
     else if (audio.getAttribute('src')) audio.play().catch((e) => audioFail(e.message));
     else loadAudio(current());
     updatePlayer();
@@ -2326,22 +2690,31 @@
 
   // трек доиграл сам
   function onTrackEnd() {
-    if (player.repeat === 'one') { player.elapsed = 0; audio.currentTime = 0; audio.play().catch(() => {}); updatePlayer(); return; }
-    if (!settings.autoplay) { player.playing = false; player.elapsed = 0; audio.currentTime = 0; updatePlayer(); return; }
+    if (player.repeat === 'one') {
+      player.elapsed = 0;
+      if (yt_.on) {   // YouTube: «в начало и играть» одной командой, иначе трек доигрывает хвост и сайт уходит к своему следующему
+        yt_.t = 0; yt_.at = Date.now(); yt_.playing = true; yt_.ended = false; yt_.restartAt = Date.now();
+        ytCtl('restart'); startSeekLoop();
+      } else { mediaSeek(0); Promise.resolve(mediaResume()).catch(() => {}); }
+      updatePlayer();
+      return;
+    }
+    if (!settings.autoplay) { player.playing = false; player.elapsed = 0; mediaSeek(0); updatePlayer(); return; }
     const isLast = !player.queue.slice(player.index + 1).some((t) => !locked(t));   // дальше нечего играть (закрытые не в счёт)
     if (isLast && !player.shuffle && player.repeat === 'off') {
       player.playing = false;
       player.elapsed = 0;
-      audio.currentTime = 0;
+      mediaSeek(0);
       updatePlayer();
       return;
     }
     next();
   }
 
-  function playTrack(id, listKey = '') {
+  function playTrack(id, listKey = '', entity = '') {
     if (current() && current().id === id && (player.listKey || '') === listKey) return locked(current()) ? undefined : toggle();
     player.listKey = listKey;
+    player.entity = entity;   // карточка альбома или плейлиста показывает «играет» только пока очередь взята из неё; от прежнего списка метка не остаётся
     player.advance = false;
     player.queue = visibleTracks.slice();
     player.qgen++;
@@ -2359,7 +2732,13 @@
   let hlsLoader = null;
   let loadToken = 0;   // ответ про прежний трек не должен перебить новый выбор
 
-  function stopAudio() {
+  // keepYt: следующий трек тоже из YouTube Music, и окно плеера не закрываем (иначе пропадёт включённое видео)
+  function stopAudio(keepYt) {
+    if (yt_.on) {
+      yt_.on = false; yt_.playing = false;
+      clearInterval(yt_.poll);
+      if (!keepYt) { ytBg.state = 'load'; ytBgSync(); const a = yt.api(); if (a && a.stop) Promise.resolve(a.stop()).catch(() => {}); }
+    }
     if (hls) { hls.destroy(); hls = null; }
     audio.pause();
     audio.removeAttribute('src');
@@ -2411,12 +2790,60 @@
     return t.scId && api && api.stream ? api.stream(t.scId) : null;
   }
 
+  // YouTube Music: окно сайта само находит и играет трек; ждём, пока он пойдёт, затем опрашиваем состояние
+  async function ytLoad(t, token) {
+    const api = yt.api();
+    if (!api || !api.play || !t.ytId) return;
+    yt_.on = true; yt_.t = 0; yt_.at = Date.now(); yt_.playing = false; yt_.ended = false;
+    player.loading = true;
+    ytBg.state = 'load'; ytBgSync();   // предыдущий клип или обложка плавно гаснут, сцена остаётся
+    updatePlayer();
+    const guestOk = await ytGuestReady();   // страница плеера под интерфейсом создаётся при первом треке YouTube Music
+    if (token !== loadToken) return;
+    let r;
+    if (!guestOk) r = { ok: false, error: 'The player is not ready yet (' + (ytGuest.why || '?') + ').' };
+    else try { r = await api.play(t.ytId, settings.volume / 100, settings.ytClips); } catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
+    if (token !== loadToken) return;
+    if (r && !r.ok && r.lock) {   // трек недоступен: запоминаем замок, очередь идёт дальше, прямой клик объясняет причину
+      yt_.on = false; ytBgSync();
+      rememberLock(t, r.lock);
+      renderContent();
+      if (player.advance) return next();
+      return stopWith(lockedMsg(t));
+    }
+    if (!r || !r.ok) { yt_.on = false; ytBgSync(); return audioFail(r && r.error, r && r.auth, t); }
+    player.loading = false;
+    yt_.t = 0; yt_.at = Date.now(); yt_.playing = true;
+    if (!player.playing) { yt_.playing = false; ytCtl('pause'); }   // пока трек грузился, нажали паузу
+    clearInterval(yt_.poll);
+    yt_.poll = setInterval(async () => {
+      if (!yt_.on || token !== loadToken || yt_.busy) return;
+      yt_.busy = true;
+      let st = null;
+      try { st = await api.state(); } catch (e) { st = null; }
+      yt_.busy = false;
+      if (!yt_.on || token !== loadToken || !st || !st.ok || !st.active) return;
+      if (st.ad) { yt_.playing = false; return; }   // реклама перед треком: ждём
+      if (st.d > 0) { const cur = current(); if (cur && Math.round(st.d) !== cur.dur) { cur.dur = Math.round(st.d); updateProgress(); } }
+      if (st.ended) {   // трек доиграл: сообщаем один раз
+        if (Date.now() - (yt_.restartAt || 0) < 1500) return;   // ответ мог выйти до перезапуска трека (повтор): это не новый конец
+        if (!yt_.ended) { yt_.ended = true; yt_.t = st.t; yt_.playing = false; onTrackEnd(); }
+        return;
+      }
+      yt_.t = st.t; yt_.at = Date.now();
+      yt_.playing = !!st.playing && player.playing;
+    }, 500);
+    startSeekLoop();
+    updatePlayer();
+  }
+
   async function loadAudio(t) {
     const token = ++loadToken;
-    stopAudio();
+    stopAudio(!!t && t.source === 'ytmusic');
     player.error = '';
     player.loading = false;
     player.altUrl = '';
+    if (t && t.source === 'ytmusic') return ytLoad(t, token);
     const pending = t ? streamOf(t) : null;
     if (!pending) return;
     player.loading = true;
@@ -2475,12 +2902,14 @@
                                       connected: false, busy: false, loading: false, syncing: false, error: '', user: null, mode: null, sig: '' });
   const sc = makeSvc('soundcloud', 'soundcloud');
   const vk = makeSvc('vk', 'vk');
-  const SVCS = { soundcloud: sc, vk };
+  const yt = makeSvc('ytmusic', 'ytmusic');
+  const SVCS = { soundcloud: sc, vk, ytmusic: yt };
   const TXT = {
     soundcloud: { connect: 'Connect SoundCloud', loading: 'Loading your SoundCloud library…', synced: 'Library synced with SoundCloud.', expired: 'Your SoundCloud session expired. Connect again.' },
     vk:         { connect: 'Connect VK Music',   loading: 'Loading your VK Music library…',   synced: 'Library synced with VK Music.',   expired: 'Your VK Music session expired. Connect again.' },
+    ytmusic:    { connect: 'Connect YouTube Music', loading: 'Loading your YouTube Music library…', synced: 'Library synced with YouTube Music.', expired: 'Your YouTube Music session expired. Connect again.' },
   };
-  const LIB_V = { soundcloud: 5, vk: 5 };   // версия формата библиотеки: у кэша старой версии нет полей, нужных страницам и замкам
+  const LIB_V = { soundcloud: 5, vk: 5, ytmusic: 8 };   // версия формата библиотеки: у кэша старой версии нет полей, нужных страницам и замкам
   const scApi = () => sc.api();
   const scErrorText = (e) => L(String(e || ''));   // сообщения основного процесса тоже можно перевести в файле языка
 
@@ -2587,9 +3016,10 @@
   }
 
   // подпись только по составу списков: счётчики прослушиваний меняются постоянно и не должны каждый раз перерисовывать экран
-  const keyOf = (x) => x.scId || x.vkId;
+  const keyOf = (x) => x.scId || x.vkId || x.ytId;
   const libSig = (l) => JSON.stringify([l.v || 0, ['recent', 'recommended', 'liked'].map((k) => l[k].map(keyOf)),
-    l.playlists.map((p) => [p.scId || 0, p.url, p.name, p.count]), l.following.map((u) => [u.scId || 0, u.url])]);
+    l.playlists.map((p) => [p.scId || 0, p.url, p.name, p.count]), l.following.map((u) => [u.scId || 0, u.url]),
+    (l.shelves || []).map((s) => [s.title, (s.tracks || []).map(keyOf), (s.lists || []).map((p) => p.url)])]);
 
   // quiet = фоновая синхронизация: без «загрузки» на экране, перерисовка только если в библиотеке что-то изменилось
   // у плейлистов VK без числа треков оно запрашивается в фоне (три потока), карточки обновляются по готовности
@@ -2747,7 +3177,7 @@
         artist: meta.artist || ent.artist || ent.author || '', artistId: 0, artistUrl: '', date: '', desc: meta.desc || '', totalDur: tracks.reduce((s, x) => s + (x.dur || 0), 0) }, tracks } };
     },
   };
-  const entityApi = (src) => (src === 'soundcloud' ? scApi() : src === 'vk' ? vkPages : null);
+  const entityApi = (src) => (src === 'soundcloud' ? scApi() : src === 'vk' ? vkPages : src === 'ytmusic' ? yt.api() : null);   // у YouTube Music: страницы треков, плейлистов и альбомов (исполнителей пока нет)
   const VK_SECTIONS = { top_audios: 'All tracks', releases: 'Releases', singles: 'Singles and EPs', albums: 'Albums' };
   const KIND_LABEL = { track: 'Track', artist: 'Artist', playlist: 'Playlist' };
 
@@ -2762,7 +3192,8 @@
   function buildPage(kind, d, src) {
     const mt = mapTrackFor(src);
     const me = mapEntityFor(src);
-    if (kind === 'track') return { kind, title: d.track.title, track: mt(d.track), related: d.related.map(mt), relatedTitle: d.relatedTitle || '' };
+    if (kind === 'track') return { kind, title: d.track.title, track: mt(d.track), related: d.related.map(mt), relatedTitle: d.relatedTitle || '', lyricsId: d.lyricsId || '',
+      sections: (d.sections || []).map((x) => ({ title: x.title, chip: x.chip, tracks: x.tracks ? x.tracks.map(mt) : null })) };   // sections: переключатели «Дальше» (YouTube Music), tracks: null, пока раздел не открыли
     if (kind === 'artist') {
       return { kind, title: d.artist.name, artist: me(d.artist), popular: d.popular.map(mt), tracks: d.tracks.map(mt),
                albums: d.albums.map(me), playlists: d.playlists.map(me) };
@@ -2812,7 +3243,7 @@
 
   // что открыть по клику: адрес и номер лежат в самом элементе
   const refAttrs = (src, id, url, name) => `data-src="${esc(src || 'soundcloud')}" data-id="${Number(id) || 0}" data-url="${esc(url || '')}" data-name="${esc(name || '')}"`;
-  const titleLink = (t) => (t.scId || t.vkId
+  const titleLink = (t) => (t.scId || t.vkId || t.ytId
     ? `<span class="t-text lnk" data-open="track" ${refAttrs(t.source, t.scId, t.url)}>${esc(t.title)}</span>`
     : `<span class="t-text">${esc(t.title)}</span>`);
   // и у трека, и у плейлиста исполнитель лежит в полях artist / artistId / artistUrl; у VK исполнителя находим по имени
@@ -2903,9 +3334,59 @@
   const playShuffle = (shuffle) => actBtn('play', I.play, L('Play'), true) + (shuffle ? actBtn('shuffle', I.shuffle, L('Shuffle')) : '');
   const extBtn = (src) => actBtn('ext', I.globe, L('Open on {0}', platform(src).name));
 
+  /* --- страница трека YouTube Music: разделы «Дальше» (Все, Популярное...) и текст песни --- */
+  // «Играть» ставит в очередь исходный трек страницы и раздел «Все»; очередь меняется, только когда запускают трек из раздела
+  const ytUi = new Map();   // состояние страницы: выбранный раздел, показан ли текст
+  const ytUiOf = (key, d) => {
+    let u = ytUi.get(key);
+    if (!u) {
+      u = { sec: Math.max(0, (d.sections || []).findIndex((x) => x.tracks)), lyrics: false, text: null, source: '', loading: false, error: '' };
+      ytUi.set(key, u);
+      if (ytUi.size > 40) ytUi.delete(ytUi.keys().next().value);
+    }
+    return u;
+  };
+  async function ytLoadSection(d, i, key) {
+    const sec = d.sections[i];
+    if (!sec || sec.tracks || sec.loading) return;
+    sec.loading = true; sec.error = '';
+    let r;
+    try { r = await yt.api().trackSection({ videoId: d.track.ytId, chip: sec.chip }); } catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
+    sec.loading = false;
+    if (r && r.ok) sec.tracks = r.data.tracks.map(mapTrackFor('ytmusic'));
+    else sec.error = L(String((r && r.error) || 'Unknown error'));
+    if (viewKey(state.view) === key) renderContent();
+  }
+  async function ytLoadLyrics(d, ui, key) {
+    ui.loading = true; ui.error = '';
+    let r;
+    try { r = await yt.api().lyrics({ videoId: d.track.ytId }); } catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
+    ui.loading = false;
+    if (r && r.ok) { ui.text = r.data.text; ui.source = r.data.source || ''; } else { ui.text = ''; ui.error = L(String((r && r.error) || 'Unknown error')); }
+    if (viewKey(state.view) === key) renderContent();
+  }
+  function ytUpNext(d, ui) {
+    if (ui.lyrics) {   // текст песни занимает место рекомендуемых треков
+      const body = ui.loading ? `<div class="empty small">${L('Loading…')}</div>`
+        : ui.error ? `<div class="notice"><p>${esc(ui.error)}</p></div>`
+        : `<div class="lyrics">${esc(ui.text || '')}</div>${ui.source ? `<div class="lyrics-src">${esc(ui.source)}</div>` : ''}`;
+      return sectionHtml(L('Lyrics'), body);
+    }
+    const secs = d.sections;
+    if (!secs.length) return d.related.length ? sectionHtml(L(d.relatedTitle || 'Up next'), trackList(d.related, 'ytsec')) : '';
+    const cur = secs[ui.sec] || secs[0];
+    const chips = `<div class="chips yt-secs">${secs.map((x, i) => `<button class="chip ${i === ui.sec ? 'on' : ''}" data-act="ytsec" data-i="${i}">${esc(x.title)}</button>`).join('')}</div>`;
+    const list = cur.tracks ? (cur.tracks.length ? trackList(cur.tracks, 'ytsec') : emptyHtml())
+      : `<div class="empty small">${cur.error ? esc(cur.error) : L('Loading…')}</div>`;
+    return sectionHtml(L(d.relatedTitle || 'Up next'), chips + list);
+  }
+
   function trackPageHtml(d) {
     const t = d.track;
     visibleTracks = [t, ...d.related.filter((x) => x.id !== t.id)];
+    const isYt = t.source === 'ytmusic';
+    const ytKey = state.view ? viewKey(state.view) : '';
+    const ui = isYt ? ytUiOf(ytKey, d) : null;
     const liked = isLiked(t);
     const stats = [
       t.plays ? L('{0} plays', fmtNum(t.plays)) : '', t.likes ? L('{0} likes', fmtNum(t.likes)) : '',
@@ -2918,12 +3399,12 @@
       kind: L('Track'), cover: t.artBig || t.art, title: t.title,
       sub: [artistLink(t), t.genre && esc(t.genre), yearOf(t.date)].filter(Boolean).join(' · '),
       stats,
-      actions: (t.lock ? '' : playShuffle(false)) + actBtn('like', liked ? I.heartFill : I.heart, L(liked ? 'Liked' : 'Like')) + artistBtn + extBtn(t.source),
+      actions: (t.lock ? '' : playShuffle(false)) + (isYt && d.lyricsId ? `<button class="btn ic ${ui.lyrics ? 'primary' : ''}" data-act="lyrics">${I.note}<span>${esc(L('Lyrics'))}</span></button>` : '') + actBtn('like', liked ? I.heartFill : I.heart, L(liked ? 'Liked' : 'Like')) + artistBtn + extBtn(t.source),
     })
       + (t.lock ? `<div class="section"><div class="notice"><p><b>${L(t.lock === 'region' ? 'Not available' : 'Protected track')}</b>${esc(lockedMsg(t))}</p></div></div>` : '')
       + aboutHtml(t.desc)
       + (t.tags && t.tags.length ? sectionHtml(L('Tags'), `<div class="chips">${t.tags.map((x) => `<span class="chip">${esc(x)}</span>`).join('')}</div>`) : '')
-      + (d.related.length ? sectionHtml(L(d.relatedTitle || 'Related tracks'), trackList(d.related)) : '');
+      + (isYt ? ytUpNext(d, ui) : d.related.length ? sectionHtml(L(d.relatedTitle || 'Related tracks'), trackList(d.related)) : '');
   }
 
   // у исполнителя VK кнопки разделов его страницы: все треки, релизы, синглы и EP, альбомы
@@ -2939,20 +3420,6 @@
     visibleTracks = d.tracks;
     const body = d.tracks.length ? trackList(d.tracks, 'all')
       : d.albums.length ? grid(d.albums.map(playlistCard).join('')) : emptyHtml();
-    return heroHtml({
-      kind: L('Artist'), cover: a.artBig || a.art, round: true, title: a.name,
-      sub: esc(L(VK_SECTIONS[d.sec])),
-      stats: d.tracks.length ? L('{0} tr.', d.tracks.length) : '',
-      actions: (d.tracks.length ? playShuffle(true) : '') + `<button class="btn ic" data-act="vkback">${I.person}<span>${esc(L('Artist page'))}</span></button>`,
-    }) + vkSectionButtons(d) + sectionHtml(L(VK_SECTIONS[d.sec]), body);
-  }
-
-  function artistPageHtml(d) {
-    if (d.sec) return artistSectionHtml(d);
-    const a = d.artist;
-    visibleTracks = d.popular.length ? d.popular : d.tracks;   // «Играть» на странице артиста берёт популярные, «All tracks» — свою очередь
-    const popN = state.expanded.has('popular') ? 10 : 5;
-    const latN = state.expanded.has('latest') ? d.tracks.length : 10;
     return heroHtml({
       kind: L('Artist'), cover: a.artBig || a.art, round: true, title: a.name,
       sub: esc(L(VK_SECTIONS[d.sec])),
@@ -3019,7 +3486,7 @@
   // Источник подключается записью в searchSources: у api сервиса должны быть search(q) и (необязательно) searchMore(cursor).
   // Результат каждого источника приводится к виду { tracks, users, playlists, albums, cursor }; дальше он сливается с библиотекой,
   // дедуплицируется, ранжируется и фильтруется здесь, на клиенте, поэтому смена фильтра не делает новых запросов.
-  const searchSources = { soundcloud: { svc: sc, timeout: 8000 }, vk: { svc: vk, timeout: 12000 } };
+  const searchSources = { soundcloud: { svc: sc, timeout: 8000 }, vk: { svc: vk, timeout: 12000 }, ytmusic: { svc: yt, timeout: 15000 } };
   const searchApi = (src) => { const e = searchSources[src]; const api = e && e.svc.connected ? e.svc.api() : null; return api && api.search ? api : null; };
   // на вкладке платформы ищем только в ней, во «Все треки» во всех подключённых сервисах
   const searchTargets = () => (state.platform === 'all' ? Object.keys(searchSources) : [state.platform]).filter(searchApi);
@@ -3145,7 +3612,7 @@
   const normDedup = (s) => String(s || '').normalize('NFKD').toLowerCase().replace(/ё/g, 'е').replace(/[\u0300-\u036f]/g, '')
     .replace(/\([^)]*\)|\[[^\]]*\]/g, ' ').replace(/\b(?:feat|ft|prod)\b\.?/g, ' ').replace(/\bremix\b/g, ' ').replace(/[^\p{L}\p{N}]+/gu, ' ').trim().replace(/\s+/g, ' ');
   const mainArtist = (t) => (t.source === 'vk' && t.artists && t.artists.length ? t.artists[0].name : artistParts(t.artist)[0] || t.artist || '');
-  const SRC_PRIORITY = { soundcloud: 0, vk: 1 };
+  const SRC_PRIORITY = { soundcloud: 0, vk: 1, ytmusic: 2 };
 
   // Один и тот же трек у разных сервисов: та же пара «исполнитель + название» и длительность в пределах 3 с (0 = неизвестна).
   // Ничего не удаляется: у главного варианта (не закрытый, с обложкой, SoundCloud раньше VK) в alt лежат остальные.
@@ -3314,6 +3781,30 @@
     if (!go(plat, state.tabs[plat], view) && pendingPlay) renderContent();   // страница уже открыта: просто запускаем
   }
 
+  // трек из подборки главной YouTube Music: играет сразу, а очередью становится раздел «Все» со страницы этого трека (как «Дальше» на сайте)
+  async function ytRadioPlay(id) {
+    const t = visibleTracks.find((x) => x.id === id);
+    if (!t) return;
+    if (current() && current().id === t.id) return toggle();
+    player.listKey = '';
+    player.entity = '';
+    player.advance = false;
+    player.queue = [t];
+    player.qgen++;
+    player.history = [];
+    player.index = -1;
+    playAt(0, false);
+    const view = { kind: 'track', src: 'ytmusic', id: 0, url: t.url, name: '', sec: '' };
+    await loadPage(view);
+    const pg = pages.get(viewKey(view));
+    // очередь подменяем, только если за это время не выбрали что-то другое
+    if (pg && pg.status === 'ok' && player.queue.length === 1 && player.queue[0].id === t.id) {
+      player.queue = [t, ...pg.data.related.filter((x) => x.id !== t.id)];
+      player.qgen++;
+      updatePlayer();
+    }
+  }
+
   // запустить список с начала (или с случайного трека); закрытые треки очередь пропускает
   function playList(list, shuffle, entity) {
     if (!list.length) return;
@@ -3357,6 +3848,19 @@
     else if ((a === 'vksec' || a === 'vkback') && d && d.artist) {
       const slug = vkSlug(d.artist);
       if (slug) openEntity('artist', { src: 'vk', url: `https://vk.com/artist/${slug}`, name: d.artist.name, sec: a === 'vksec' ? btn.dataset.sec : '' });
+    }
+    else if (a === 'ytsec' && d && d.sections) {   // другой раздел «Дальше»: очередь не трогаем, она поменяется, когда запустят трек из списка
+      const key = viewKey(state.view);
+      const ui = ytUiOf(key, d);
+      ui.sec = Number(btn.dataset.i) || 0; ui.lyrics = false;
+      ytLoadSection(d, ui.sec, key);
+      renderContent();
+    } else if (a === 'lyrics' && d && d.track) {   // текст песни вместо рекомендуемых треков; ещё раз: вернуть треки
+      const key = viewKey(state.view);
+      const ui = ytUiOf(key, d);
+      ui.lyrics = !ui.lyrics;
+      if (ui.lyrics && ui.text === null && !ui.loading) ytLoadLyrics(d, ui, key);
+      renderContent();
     }
     else if (a === 'likepl' && d && d.pl) { togglePlLike(d.pl); renderContent(); }
     else if (a === 'more') { state.expanded.add(btn.dataset.sect); renderContent(); }
@@ -3476,11 +3980,14 @@
       return openEntity(open.dataset.open, ref);
     }
     const row = e.target.closest('[data-track]');
+    if (row && row.dataset.radio) return ytRadioPlay(Number(row.dataset.track));
     if (row) {
       const prev = visibleTracks;
       const own = row.dataset.list && trackLists[row.dataset.list];
       if (own) visibleTracks = own;   // очередь берётся из того списка, в котором нажали трек
-      playTrack(Number(row.dataset.track), row.dataset.list || '');
+      // страница плейлиста, альбома или исполнителя: её карточка отмечается как играющая; со страницы трека и из прочих мест метки нет
+      const ent = state.view && (state.view.kind === 'playlist' || state.view.kind === 'artist') ? viewKey(state.view) : '';
+      playTrack(Number(row.dataset.track), row.dataset.list || '', ent);
       visibleTracks = prev;
     }
   });
@@ -3489,13 +3996,13 @@
   const npPlatform = (t) => t.source;   // страница трека открывается в его платформе
   const openNowPlaying = () => {
     const t = current();
-    if (t && (t.scId || t.vkId)) openEntity('track', { src: t.source, id: t.scId, url: t.url }, null, npPlatform(t));
+    if (t && (t.scId || t.vkId || t.ytId)) openEntity('track', { src: t.source, id: t.scId, url: t.url }, null, npPlatform(t));
   };
-  $('npTitle').addEventListener('click', openNowPlaying);
-  $('npCover').addEventListener('click', openNowPlaying);
-  $('npArtist').addEventListener('click', () => {
+  $('npTitle').addEventListener('click', (e) => { if (e.target.closest('.lnk')) openNowPlaying(); });
+  $('npCover').addEventListener('click', () => { if ($('npCover').classList.contains('lnk')) openNowPlaying(); });
+  $('npArtist').addEventListener('click', (e) => {
     const t = current();
-    if (t && artistAttrs(t) && !player.error && !player.loading) {
+    if (e.target.closest('.lnk') && t && artistAttrs(t) && !player.error && !player.loading) {
       const a = t.source === 'vk' && t.artists && t.artists[0];   // у VK: номер и имя первого исполнителя, как у ссылок в списках
       openEntity('artist', { src: t.source, id: t.artistId, url: a ? `https://vk.com/artist/${a.id}` : t.artistUrl, name: t.source === 'vk' ? (a ? a.name : t.artist) : '' }, null, npPlatform(t));
     }
@@ -3548,6 +4055,15 @@
       return;
     }
 
+    const traySw = t.closest('[data-tray-toggle]');
+    if (traySw) {
+      winCfg.closeToTray = !winCfg.closeToTray;
+      traySw.classList.toggle('on', winCfg.closeToTray);
+      traySw.setAttribute('aria-checked', String(winCfg.closeToTray));
+      try { if (window.api && window.api.windowBehavior) window.api.windowBehavior.setCloseToTray(winCfg.closeToTray); } catch (e) { /* ничего */ }
+      return;
+    }
+
     const updSw = t.closest('[data-upd-auto]');
     if (updSw) {
       upd.auto = !upd.auto;
@@ -3565,7 +4081,8 @@
       saveSettings();
       sw.classList.toggle('on', settings[key]);
       sw.setAttribute('aria-checked', String(settings[key]));
-      if (key === 'outlineIcons') applyTheme();
+      if (key === 'outlineIcons' || key === 'glassOffOnVideo' || key === 'glassOffOnCover') applyTheme();
+      if (key === 'ytClips') ytClipsApply();
       if (key === 'autoSync') scSchedule();
       if (key === 'notifyTrack' && settings.notifyTrack && window.Notification && Notification.permission === 'default') Notification.requestPermission();
       return;
@@ -3576,7 +4093,15 @@
       settings.wpPos = posBtn.dataset.wpPos;
       saveSettings();
       applyTheme();
-      $$('.pos').forEach((b) => b.classList.toggle('sel', b.dataset.wpPos === settings.wpPos));
+      posBtn.parentElement.querySelectorAll('.pos').forEach((b) => b.classList.toggle('sel', b.dataset.wpPos === settings.wpPos));
+      return;
+    }
+    const cvBtn = t.closest('[data-cv-pos]');
+    if (cvBtn) {
+      settings.cvPos = cvBtn.dataset.cvPos;
+      saveSettings();
+      applyTheme();
+      cvBtn.parentElement.querySelectorAll('.pos').forEach((b) => b.classList.toggle('sel', b.dataset.cvPos === settings.cvPos));
       return;
     }
 
@@ -3633,9 +4158,10 @@
       const key = e.target.dataset.set;
       settings[key] = Number(e.target.value);
       saveSettings();
-      applyTheme();
+      applyTheme();   // здесь же прозрачность приводится в порядок: потомок не ниже родителя, потомки поднимаются вместе с родителем
       setFill(e.target);
       $('val-' + key).textContent = settings[key] + (e.target.dataset.unit || '');
+      if (OPACITY.some(([k]) => k === key)) syncOpacitySliders();
       if (key === 'bgSat') refreshColors();
       return;
     } else if (id === 'wpFit') {
@@ -3643,6 +4169,12 @@
       saveSettings();
       applyTheme();
       $('posGrid').classList.toggle('off', settings.wpFit === 'stretch');
+      return;
+    } else if (id === 'cvFit') {
+      settings.cvFit = e.target.value;
+      saveSettings();
+      applyTheme();
+      $('cvPosGrid').classList.toggle('off', settings.cvFit === 'stretch');
       return;
     } else if (id === 'patRange') {
       settings.patternAlpha = Number(e.target.value);
@@ -3693,11 +4225,22 @@
     if (state.view || curTab() === 'liked') renderContent();   // список лайков и страница трека сразу показывают изменение
   });
 
+  // кнопка клипов: включает и выключает клипы на фоне; состояние запоминается и действует для всех следующих треков YouTube Music
+  $('videoBtn').addEventListener('click', () => {
+    settings.ytClips = !settings.ytClips;
+    saveSettings();
+    ytClipsApply();
+    if (ui.section === 'appearance' && !$('overlay').hidden) renderBody(true);   // переключатель в настройках показывает то же состояние
+  });
+
+  // страница сайта сообщает: true (клип идёт), 'none' (у трека нет клипа, показываем обложку), false (загрузка, клипа пока нет)
+  if (yt.api() && yt.api().onVideo) yt.api().onVideo((v) => { ytBg.state = v === true ? 'video' : v === 'none' ? 'none' : 'load'; ytBgSync(); updatePlayer(); });
+
   $('seek').addEventListener('pointerdown', () => { seekDrag = true; });
   window.addEventListener('pointerup', () => { if (seekDrag) { seekDrag = false; startSeekLoop(); } });
   $('seek').addEventListener('input', (e) => {
     player.elapsed = Math.floor(Number(e.target.value));
-    audio.currentTime = Number(e.target.value);
+    mediaSeek(Number(e.target.value));
     updateProgress();
   });
   // всплывашка с процентами над бегунком: показывается, пока меняем громкость, и гаснет через секунду
@@ -3719,7 +4262,7 @@
   $('vol').addEventListener('input', (e) => {
     setFill(e.target);
     settings.volume = Math.round(Number(e.target.value) * 10) / 10;
-    audio.volume = settings.volume / 100;
+    mediaVolume(settings.volume / 100);
     saveSettings();
     showVolTip(false);
   });
@@ -3924,6 +4467,7 @@
   initQueue();
   $('closeBtn').innerHTML = I.close;
   $('playBtn').innerHTML = I.play;
+  $('videoBtn').innerHTML = I.video;
   if (settings.rememberVolume) $('vol').value = settings.volume;
   setFill($('vol'));
   audio.volume = Number($('vol').value) / 100;
@@ -3938,6 +4482,10 @@
     Promise.resolve(window.api.getWallpaper()).then((w) => { wallpaper = w || null; wp.bitmap = null; applyTheme(); }).catch(() => {});
   }
   if (window.api && window.api.patchNotes) Promise.resolve(window.api.patchNotes()).then((n) => { patchNotes = Array.isArray(n) ? n : []; }).catch(() => {});
+  if (window.api && window.api.windowBehavior) {
+    Promise.resolve(window.api.windowBehavior.get()).then((c) => { if (c) winCfg = { ...winCfg, ...c }; }).catch(() => {});
+    syncTrayLabels();
+  }
   if (window.api && window.api.updates) {
     Promise.resolve(window.api.updates.get()).then((u) => { if (u) upd = { ...upd, ...u }; }).catch(() => {});
     window.api.updates.onStatus((u) => {

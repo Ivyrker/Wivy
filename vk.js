@@ -1561,4 +1561,4 @@ function register(ipcMain, winOf) {
   });
 }
 
-module.exports = { register, _test: { pickStream, unmask, toTrack, parsePlaylists, decode, art, loadSection, collectTracks, AuthError, NoLinkError, stream, streamCache, like, inVkPage, playlistPage, parsePlaylists, parseTiles, dataAudioItems, parseSearch, artistsFromTracks, scrub, searchVk, searchMoreVk, artistPage, playlistMeta, hydrateItems, alAudio, runProbe, inVkAjax, readText, slugOf, isRedirect, artistFromSearch, tilesFromJson, finishSearch, unwrapHtml, frameParts, artistDocs, collectAudio, collectPlaylists, tileOf, fetchLibrary, playlistCounts, countOf } };
+module.exports = { register };

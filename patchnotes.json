@@ -1,8 +1,20 @@
 {
   "entries": [
     {
+      "version": "1.0.1",
+      "date": "2026-11-19",
+      "title": "Visual enhancements and conveniences",
+      "items": [
+        "Now you can share your themes and wallpapers with friends using just a single file",
+        "The application can now be minimized to the system tray.",
+        "Incomplete support for YouTube Music has been added(firefox onle tryed).",
+        "A minor revision of the UI display architecture to integrate with YouTube functionality"
+      ],
+      "images": ["101.png"]
+    },
+    {
       "version": "1.0.0",
-      "date": "2026-11-18",
+      "date": "2026-11-19",
       "title": "First release",
       "items": [
         "A first public look at the app.",
@@ -13,7 +25,7 @@
         "Everything is completely free, with no optional subscriptions. While everything is free, new features don’t just appear on their own. In the future, you’ll have the option to support the author (me—I need to eat, too!).",
         "I always welcome suggestions for improving the app, and I’m happy to help resolve any bugs you encounter. Please submit these via the Issues section of the project's GitHub repository."
       ],
-      "images": ["100.png"]
+      "images": ["100.png"] 
     }
   ]
 }

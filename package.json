@@ -1,7 +1,7 @@
 {
   "name": "wivy",
   "productName": "Wivy",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Customizable player, aggregator of music services",
   "main": "main.js",
   "scripts": {
@@ -43,6 +43,7 @@
       "renderer.js",
       "soundcloud.js",
       "vk.js",
+      "ytmusic.js",
       "icons.js",
       "index.html",
       "styles.css",
