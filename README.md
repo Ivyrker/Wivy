@@ -44,6 +44,8 @@ The main idea is **customization**: wallpaper, transparency, glass effect, fonts
 
 - **Music aggregator** — SoundCloud, VK Music, YouTube Music and Yandex Music in one app. The "All tracks" tab merges your liked tracks from every connected service, and each track is marked with its platform icon.
 - **Library sync** — liked tracks, playlists, followed artists and recently added tracks.
+- **Music Quality** — the best sound quality tracks available from the platforms.
+- **Clips** — clips in the original quality from the platforms (as high as your internet speed allows).
 - **Track, artist and playlist pages** — tags, related tracks, and quick links to open the item on the original service.
 - **Multi-service Search** — search through all streaming services at once.
 - **Queue** — drag and drop reordering, shuffle, repeat (playlist / single track).

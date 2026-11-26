@@ -188,7 +188,7 @@
     font: 'auto', fontSize: 14, pattern: 'dots', patternAlpha: 70, lang: 'en', uiScale: 100,
     aTitle: 100, aRail: 100, aMain: 100, aCanvas: 100, aCards: 100, aControls: 100, aPlayer: 100, aQueue: 100, aModal: 100, aScroll: 100, aLines: 100,
     glassBlur: 10, glassOffOnVideo: true, glassOffOnCover: true, wpFit: 'cover', wpPos: 'c', wpBlur: 0, textOutline: 50,
-    ytClips: false, cvFit: 'contain', cvPos: 'c', cvBlur: 0,   // ytClips: кнопка клипов в плеере (запоминается); cv*: показ обложек треков без клипа
+    ytClips: false, cvFit: 'contain', cvPos: 'c',   // ytClips: кнопка клипов в плеере (запоминается); cv*: показ обложек треков без клипа
     bgColor: 'auto', bgSat: 60, outlineColor: 'auto', outlineIcons: false, outlineStyle: 'soft',
     notifyTrack: false, notifyUnfocused: true, notifySilent: false,
     autoplay: true, rememberVolume: true, volume: 70, autoSync: true, profileSrc: 'auto', syncEvery: 5,
@@ -197,7 +197,7 @@
   const BOOLS = ['notifyTrack', 'notifyUnfocused', 'notifySilent', 'autoplay', 'rememberVolume', 'outlineIcons', 'autoSync', 'hideLocked', 'glassOffOnVideo', 'glassOffOnCover', 'ytClips'];
   // числовые настройки и их допустимые границы
   const NUMS = { aTitle: [0, 100], aRail: [0, 100], aMain: [0, 100], aCanvas: [0, 100], aCards: [0, 100],
-                 aPlayer: [0, 100], aQueue: [0, 100], aScroll: [0, 100], aModal: [0, 100], aControls: [0, 100], aLines: [0, 100], glassBlur: [0, 24], wpBlur: [0, 40], cvBlur: [0, 40], textOutline: [0, 100], bgSat: [0, 100], uiScale: [75, 150], syncEvery: [1, 240] };
+                 aPlayer: [0, 100], aQueue: [0, 100], aScroll: [0, 100], aModal: [0, 100], aControls: [0, 100], aLines: [0, 100], glassBlur: [0, 24], wpBlur: [0, 40], textOutline: [0, 100], bgSat: [0, 100], uiScale: [75, 150], syncEvery: [1, 240] };
   const settings = { ...DEFAULTS };
   // проверяет сохранённые (или полученные из файла оформления) значения и переносит в settings только допустимые
   function applySaved(saved) {
@@ -315,7 +315,8 @@
     const parts = PLATFORMS.filter((p) => p.id !== 'all').map((p) => DATA[p.id]).filter((d) => d.connected);
     const mix = (key) => interleave(parts.map((d) => d[key]));
     const byDate = (key) => mergeByDate(parts.map((d) => d[key]));
-    DATA.all = { connected: parts.length > 0, recent: mix('recent'), recommended: mix('recommended'), liked: byDate('liked'), playlists: byDate('playlists'), following: mix('following'), artists: mix('artists') };
+    DATA.all = { connected: parts.length > 0, recent: mix('recent'), recommended: mix('recommended'), liked: byDate('liked'), playlists: byDate('playlists'), following: mix('following'), artists: mix('artists'),
+      shelves: parts.flatMap((d) => d.shelves || []) };   // подборки главной (сейчас у YouTube Music) тоже видны на «Все»
     likedKeys = new Set();
     PLATFORMS.filter((p) => p.id !== 'all').forEach((p) => DATA[p.id].liked.forEach((x) => likedKeys.add(trackKey(x.source, x))));
   }
@@ -518,6 +519,7 @@
   /* ---------- Состояние ---------- */
   // у каждой платформы свой выбранный раздел: при переключении платформ они не смешиваются
   // фильтры поиска: types и sources пустые = «все»; hideLocked и sort запоминаются в настройках, остальное живёт, пока не очищен запрос
+  const newLikedFilter = () => ({ sources: new Set(), dur: 'any', hideLocked: settings.hideLocked, sort: 'added', more: false, text: '' });
   const newSearchFilter = () => ({ types: new Set(), sources: new Set(), dur: 'any', hideLocked: settings.hideLocked, lib: 'any', sort: settings.searchSort, more: false });
 
   const state = {
@@ -527,6 +529,7 @@
     view: null,            // открытая страница: { kind: 'track' | 'artist' | 'playlist', src, id, url } или null
     expanded: new Set(),   // раскрытые списки «Показать ещё» на странице
     searchFilter: newSearchFilter(),
+    likedFilter: newLikedFilter(),   // фильтры вкладки «Понравившиеся»
   };
   const curTab = () => state.tabs[state.platform];
 
@@ -733,15 +736,12 @@
     const cover = d.ytCover === 'on';                 // обложка трека YouTube Music без клипа
     d.noblur = (settings.glassOffOnVideo && video) || (settings.glassOffOnCover && cover) ? 'on' : 'off';
   }
-  // размещение, позиция и размытие обложки на сцене клипов (те же настройки, что у обоев)
+  // размещение и позиция обложки на сцене клипов (те же настройки, что у обоев)
   function ytCoverApply() {
     const img = document.getElementById('ytCover');
     if (!img) return;
     img.style.objectFit = WP_CSS_FIT[settings.cvFit] || 'contain';
     img.style.objectPosition = (WP_POS[settings.cvPos] || WP_POS.c)[0];
-    const b = settings.cvBlur;
-    img.style.filter = b > 0 ? `blur(${b}px)` : '';
-    img.style.transform = b > 0 ? `scale(${(1 + b / 120).toFixed(3)})` : '';
   }
 
   // живые обои: видео и gif играют настоящим элементом внутри слоя обоев (картинки рисуются в canvas, см. выше)
@@ -1143,8 +1143,8 @@
     if (tab === 'home') {
       // У VK нет истории прослушиваний: «недавние» это последние добавленные, а если их список пуст, берём начало лайков.
       // Если рекомендаций нет, главную наполняют исполнители и плейлисты из библиотеки и следующие треки из неё.
-      const base = data.recent.length ? data.recent : data.liked.slice(0, 12);
-      const recent = base.slice(0, 6);
+      const base = data.recent.length ? data.recent : data.liked.slice(0, 30);
+      const recent = base.slice(0, 30);   // «Недавно проигранные»: до 30 треков
       const more = data.recommended;
       const noRecs = !more.length;
       const filler = noRecs ? data.liked.filter((x) => !recent.some((r) => r.id === x.id)).slice(0, 20) : [];
@@ -1169,9 +1169,9 @@
         ${filler.length ? sectionHtml(L('From your library'), trackList(filler)) : ''}
         ${recent.length || more.length || filler.length || shelves.length ? '' : emptyHtml()}`;
     } else if (tab === 'liked') {
-      const likedList = likedTracks(data);
-      visibleTracks = likedList;
-      el.innerHTML = `<div class="section"><div class="section-title">${L('Liked')}</div>${likedList.length ? trackList(likedList) : emptyHtml()}</div>`;
+      likedAll = likedTracks(data);
+      el.innerHTML = `<div class="section"><div class="section-title">${L('Liked')}</div>${likedAll.length ? likedBar(likedAll) + `<div id="likedList">${likedListHtml()}</div>` : emptyHtml()}</div>`;
+      if (!likedAll.length) visibleTracks = [];
     } else if (tab === 'playlists') {
       visibleTracks = [];
       el.innerHTML = `
@@ -1371,7 +1371,7 @@
     { id: 'ap-fontsize', section: 'appearance', sub: 'font', title: 'Font size',
       desc: 'Base text size; other text sizes scale with it. To resize everything, use Interface scale.' },
     { id: 'ap-wallpaper', section: 'appearance', sub: 'wall', title: 'Wallpaper',
-      desc: 'Use your own picture, animated GIF or video as the background (PNG, JPG, WebP, GIF, BMP, AVIF, MP4, WebM or MOV). Video plays muted and on a loop. Wivy keeps a copy, so you can delete the original.' },
+      desc: 'Use your own picture, animated GIF or video as the background (PNG, JPG, JFIF, WebP, GIF, BMP, AVIF, MP4, WebM or MOV). Video plays muted and on a loop. Wivy keeps a copy, so you can delete the original.' },
     { id: 'ap-wp-fit', section: 'appearance', sub: 'wall', title: 'Wallpaper placement',
       desc: 'Stretch, fit, fill, original size or tiled, plus where the picture sits: a corner, an edge or the center.' },
     { id: 'ap-wp-blur', section: 'appearance', sub: 'wall', title: 'Wallpaper blur',
@@ -1382,8 +1382,6 @@
       desc: 'Plays the video clip of YouTube Music tracks as the background. A track with no clip shows its big cover on black instead. This is the clip button in the player, which remembers its state.' },
     { id: 'ap-cover-fit', section: 'appearance', sub: 'clips', title: 'Cover placement',
       desc: 'How the cover of a YouTube Music track without a clip sits on the black background: stretched, fitted, filled, original size, and where it sits.' },
-    { id: 'ap-cover-blur', section: 'appearance', sub: 'clips', title: 'Cover blur',
-      desc: 'Softens the cover so text on top is easier to read.' },
     { id: 'ap-glass-video', section: 'appearance', sub: 'clips', title: 'No blur over clips and video wallpaper',
       desc: 'Removes the glass blur from all windows while a video clip or an animated wallpaper plays in the background. Blur over a moving picture can flicker or drop out. Turn off to keep the blur.' },
     { id: 'ap-glass-cover', section: 'appearance', sub: 'clips', title: 'No blur over covers',
@@ -1826,7 +1824,6 @@
                            + blockRow('ap-outline', outlineControls())
                            + blockRow('ap-opacity', opacityControls()))
               + wrap('clips', toggleRow('ap-clips', 'ytClips') + blockRow('ap-cover-fit', fitControls('cv'))
-                            + blockRow('ap-cover-blur', sliderRow('cvBlur', L('Blur'), settings.cvBlur, 0, 40, ' px'))
                             + toggleRow('ap-glass-video', 'glassOffOnVideo') + toggleRow('ap-glass-cover', 'glassOffOnCover'))
               + wrap('font', blockRow('ap-font', fontControls()) + blockRow('ap-fontsize', fontSizeControls()) + blockRow('ap-scale', scaleControls()))
               + wrap('panels', blockRow('ap-pattern', patternControls())
@@ -2023,7 +2020,7 @@
   // Аккаунты, язык, уведомления и настройки воспроизведения в файл не попадают.
   const LOOK_KEYS = ['theme', 'tint', 'sat', 'textColor', 'textSat', 'sourceMode', 'sourceShow', 'font', 'fontSize', 'pattern', 'patternAlpha', 'uiScale',
     'aTitle', 'aRail', 'aMain', 'aCanvas', 'aCards', 'aControls', 'aPlayer', 'aQueue', 'aModal', 'aScroll', 'aLines',
-    'glassBlur', 'glassOffOnVideo', 'glassOffOnCover', 'cvFit', 'cvPos', 'cvBlur', 'wpFit', 'wpPos', 'wpBlur', 'textOutline', 'bgColor', 'bgSat', 'outlineColor', 'outlineIcons', 'outlineStyle'];
+    'glassBlur', 'glassOffOnVideo', 'glassOffOnCover', 'cvFit', 'cvPos', 'wpFit', 'wpPos', 'wpBlur', 'textOutline', 'bgColor', 'bgSat', 'outlineColor', 'outlineIcons', 'outlineStyle'];
 
   async function exportLook() {
     const look = {};
@@ -2273,8 +2270,14 @@
       img.onload = () => { if (tok === ytBg.tok) img.classList.add('show'); };
       img.onerror = () => { if (tok === ytBg.tok && small && img.getAttribute('src') !== small) img.src = small; };
       ytBg.shown = url;
-      img.src = url;
-      if (img.complete && img.naturalWidth) img.classList.add('show');   // картинка уже в кэше
+      // сначала обычная обложка (она уже в кэше после списка): появляется сразу; крупную подгружаем отдельно и подменяем без мигания
+      img.src = small;
+      if (img.complete && img.naturalWidth) img.classList.add('show');
+      if (url !== small) {
+        const big = new Image();
+        big.onload = () => { if (tok === ytBg.tok) img.src = url; };
+        big.src = url;
+      }
     };
     if (img.classList.contains('show')) { img.classList.remove('show'); setTimeout(swap, 300); } else swap();
   }
@@ -2284,7 +2287,8 @@
     const { stage } = ytStageEl();
     stage.classList.toggle('show', active);
     if (ytGuest.el) ytGuest.el.classList.toggle('show', active && ytBg.state === 'video');
-    const cover = active && ytBg.state === 'none';
+    // обложка трека видна сразу, пока грузится страница (как постер); если у трека есть клип, он плавно появляется поверх неё
+    const cover = active && ytBg.state !== 'video';
     ytCoverShow(cover ? t : null);
     const d = document.documentElement.dataset;
     d.ytVideo = active && ytBg.state === 'video' ? 'on' : 'off';
@@ -2909,7 +2913,7 @@
     vk:         { connect: 'Connect VK Music',   loading: 'Loading your VK Music library…',   synced: 'Library synced with VK Music.',   expired: 'Your VK Music session expired. Connect again.' },
     ytmusic:    { connect: 'Connect YouTube Music', loading: 'Loading your YouTube Music library…', synced: 'Library synced with YouTube Music.', expired: 'Your YouTube Music session expired. Connect again.' },
   };
-  const LIB_V = { soundcloud: 5, vk: 5, ytmusic: 8 };   // версия формата библиотеки: у кэша старой версии нет полей, нужных страницам и замкам
+  const LIB_V = { soundcloud: 5, vk: 6, ytmusic: 8 };   // версия формата библиотеки: у кэша старой версии нет полей, нужных страницам и замкам
   const scApi = () => sc.api();
   const scErrorText = (e) => L(String(e || ''));   // сообщения основного процесса тоже можно перевести в файле языка
 
@@ -3695,6 +3699,70 @@
     };
   }
 
+  /* --- фильтры «Понравившихся»: сервис, длительность, доступность, сортировка и поиск по списку (удобнее всего на «Все», где треки разных сервисов вместе) --- */
+  let likedAll = [];   // полный список понравившихся, из которого строится показанный
+  const LIKED_SORTS = [['added', 'Recently liked'], ['title', 'Title (A–Z)'], ['artist', 'Artist (A–Z)'], ['duration', 'Duration']];
+  // сервисы, у которых есть трек (у объединённого трека их несколько), и сколько треков у каждого
+  function likedSources(list) {
+    const counts = {};
+    list.forEach((t) => [t, ...(t.alt || [])].forEach((m) => { counts[m.source] = (counts[m.source] || 0) + 1; }));
+    return counts;
+  }
+  function filterLiked(list, f) {
+    const counts = likedSources(list);
+    const active = new Set([...f.sources].filter((s) => counts[s]));   // выбранный ранее сервис мог быть на другой вкладке «Все»
+    const q = f.text.trim().toLowerCase();
+    let out = list.map((t) => restrictSources(t, { sources: active })).filter(Boolean)
+      .filter((t) => passTrack(t, { hideLocked: f.hideLocked, dur: f.dur, lib: 'any' }) && (!q || `${t.title} ${t.artist || ''}`.toLowerCase().includes(q)));
+    const cmp = {
+      title: (a, b) => a.title.localeCompare(b.title),
+      artist: (a, b) => (a.artist || '').localeCompare(b.artist || '') || a.title.localeCompare(b.title),
+      duration: (a, b) => (a.dur || 0) - (b.dur || 0),
+    }[f.sort];
+    if (cmp) out = out.slice().sort(cmp);
+    return out;
+  }
+  // сам список под панелью: пересобирается при вводе в поле, не трогая сам ввод
+  function likedListHtml() {
+    const f = state.likedFilter;
+    const list = filterLiked(likedAll, f);
+    visibleTracks = list;
+    const stat = $('likedStat');
+    if (stat) stat.textContent = list.length === likedAll.length ? '' : L('{0} of {1}', list.length, likedAll.length);
+    return list.length ? trackList(list) : `<div class="empty small">${L('No songs match these filters.')}</div>`;
+  }
+  function likedBar(all) {
+    const f = state.likedFilter;
+    const chip = (v, label, on, extra) => `<button class="chip ${on ? 'on' : ''}" data-lf="${v}">${extra || ''}${esc(label)}</button>`;
+    const counts = likedSources(all);
+    const srcs = Object.keys(counts);
+    const srcChips = srcs.length > 1
+      ? chip('src:all', L('All sources'), !f.sources.size) + srcs.map((s) => chip('src:' + s, `${platform(s).name} ${counts[s]}`, f.sources.has(s), srcIcon(platform(s), 'sm'))).join('') : '';
+    const dur = [['any', 'Any'], ['short', 'Under 2 min'], ['mid', '2–5 min'], ['long', '5–10 min'], ['xl', 'Over 10 min']].map(([k, label]) => chip('dur:' + k, L(label), f.dur === k)).join('');
+    const sorts = LIKED_SORTS.map(([k, label]) => chip('sort:' + k, L(label), f.sort === k)).join('');
+    const row = (label, body) => `<div class="frow"><span class="flabel">${esc(L(label))}</span><div class="chips">${body}</div></div>`;
+    return `
+      <div class="fbar">
+        <label class="filter-input"><input id="likedFilterInput" type="text" value="${esc(f.text)}" placeholder="${esc(L('Filter liked songs'))}" autocomplete="off"></label>
+        ${srcChips ? `<div class="chips">${srcChips}</div>` : ''}
+        <div class="chips">${chip('more:toggle', L('More filters') + (f.more ? ' ▴' : ' ▾'), f.more)}</div>
+        <span class="fstat" id="likedStat"></span>
+      </div>
+      ${f.more ? `<div class="section">${row('Duration', dur)}${row('Availability', chip('lock:toggle', L('Hide unavailable'), f.hideLocked))}${row('Sort by', sorts)}</div>` : ''}`;
+  }
+  function likedFilterAction(v) {
+    const f = state.likedFilter;
+    const [kind, val] = v.split(':');
+    const toggle = (set, x) => { if (set.has(x)) set.delete(x); else set.add(x); };
+    if (kind === 'src') { if (val === 'all') f.sources.clear(); else toggle(f.sources, val); }
+    else if (kind === 'dur' && (val === 'any' || DUR_RANGES[val])) f.dur = val;
+    else if (kind === 'sort' && LIKED_SORTS.some(([k]) => k === val)) f.sort = val;
+    else if (kind === 'lock') f.hideLocked = !f.hideLocked;
+    else if (kind === 'more') f.more = !f.more;
+    else return;
+    renderContent();
+  }
+
   /* --- панель фильтров --- */
   function filterBar(r) {
     const f = r.f;
@@ -3959,12 +4027,21 @@
     else { applyQuery(it.dataset.hist); pushHist(it.dataset.hist); showHist(false); }
   });
 
+  // поле «Filter liked songs»: список под ним пересобирается на лету, само поле не трогаем (иначе пропадал бы фокус)
+  $('content').addEventListener('input', (e) => {
+    if (e.target.id !== 'likedFilterInput') return;
+    state.likedFilter.text = e.target.value;
+    const box = $('likedList');
+    if (box) { box.innerHTML = likedListHtml(); markPlaying(); }
+  });
   $('content').addEventListener('click', (e) => {
     if (queueClick(e)) return;
     const scBtn = e.target.closest('[data-sc]');
     if (scBtn) return scAction(scBtn.dataset.sc, scBtn.dataset.svc);
     const sf = e.target.closest('[data-sf]');
     if (sf) return searchFilterAction(sf.dataset.sf);
+    const lf = e.target.closest('[data-lf]');
+    if (lf) return likedFilterAction(lf.dataset.lf);
     const act = e.target.closest('[data-act]');
     if (act) return pageAction(act);
     // ссылки на страницы (название, исполнитель, карточки плейлистов и исполнителей) перехватывают клик раньше, чем строка трека

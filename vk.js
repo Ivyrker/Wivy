@@ -9,7 +9,7 @@ const fs = require('fs');
 const path = require('path');
 
 const PARTITION = 'persist:vk';                     // отдельное хранилище cookie для окна входа
-const LIMITS = { liked: 5000, playlists: 100, recent: 12 };   // лайков может быть и больше тысячи: потолок только от зависания
+const LIMITS = { liked: 5000, playlists: 100, recent: 30 };   // лайков может быть и больше тысячи: потолок только от зависания
 
 class AuthError extends Error {}
 class NoLinkError extends Error {}   // VK не отдал ссылку на звук: трек закрыт для региона или аккаунта

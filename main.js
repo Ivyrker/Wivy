@@ -91,8 +91,8 @@ function readSupport() {
 
 // Обои: выбранная картинка копируется в папку данных приложения как wallpaper.<расширение>,
 // поэтому исходный файл можно потом переместить или удалить.
-const WP_FILE = /^wallpaper\.(png|jpe?g|webp|gif|bmp|avif|mp4|m4v|webm|mov)$/i;
-const WP_EXT = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.avif', '.mp4', '.m4v', '.webm', '.mov'];
+const WP_FILE = /^wallpaper\.(png|jpe?g|jfif|webp|gif|bmp|avif|mp4|m4v|webm|mov)$/i;
+const WP_EXT = ['.png', '.jpg', '.jpeg', '.jfif', '.webp', '.gif', '.bmp', '.avif', '.mp4', '.m4v', '.webm', '.mov'];
 const WP_VIDEO = new Set(['.mp4', '.m4v', '.webm', '.mov']);
 // image — обычная картинка (рисуется в canvas), gif и video играют живым элементом под интерфейсом
 const wpKind = (name) => { const e = path.extname(name).toLowerCase(); return WP_VIDEO.has(e) ? 'video' : e === '.gif' ? 'gif' : 'image'; };
@@ -265,7 +265,7 @@ ipcMain.handle('wallpaper:pick', async (e, labels) => {
   return findWallpaper();
 });
 // байты картинки отдаём окну приложения: из file:// canvas был бы «заражённым» и не позволил бы собрать размытые слои обоев
-const WP_MIME = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', bmp: 'image/bmp', avif: 'image/avif' };
+const WP_MIME = { jpg: 'image/jpeg', jpeg: 'image/jpeg', jfif: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', bmp: 'image/bmp', avif: 'image/avif' };
 ipcMain.handle('wallpaper:read', () => {
   const name = wallpaperFiles()[0];
   if (!name || wpKind(name) !== 'image') return null;   // видео и gif показываются живым элементом, байты им не нужны

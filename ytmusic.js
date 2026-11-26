@@ -848,8 +848,14 @@ const VIDEO_ON = `(()=>{
 const FRAMES = `(()=>{const v=document.querySelector('video');if(!v)return null;const p=document.querySelector('#movie_player');let type='';
   try{type=p.getPlayerResponse().videoDetails.musicVideoType||'';}catch(e){}
   const q=v.getVideoPlaybackQuality?v.getVideoPlaybackQuality():null;
-  return {w:v.videoWidth,h:v.videoHeight,frames:q?q.totalVideoFrames:-1,type};})()`;
-const realClip = (f) => !!f && f.w >= 160 && f.h >= 90 && f.frames !== 0 && f.type !== 'MUSIC_VIDEO_TYPE_ATV';
+  const shown=(s)=>{const e=document.querySelector(s);if(!e)return null;const r=e.getBoundingClientRect();return r.width>20&&r.height>20&&getComputedStyle(e).display!=='none';};
+  return {w:v.videoWidth,h:v.videoHeight,frames:q?q.totalVideoFrames:-1,type,vid:shown('#song-video'),img:shown('#song-image')};})()`;
+// У клипа на странице показан блок #song-video, у обложки #song-image: по ним клип и обложка различаются
+const realClip = (f) => !!f && f.w >= 160 && f.h >= 90 && f.frames !== 0 && f.type !== 'MUSIC_VIDEO_TYPE_ATV' && f.vid !== false;
+// какой блок плеера показан сейчас и есть ли переключатель «Song / Video»
+const MODE = `(()=>{const shown=(s)=>{const e=document.querySelector(s);if(!e)return false;const r=e.getBoundingClientRect();return r.width>20&&r.height>20&&getComputedStyle(e).display!=='none';};
+  const btn=document.querySelector('ytmusic-av-toggle .video-button')||document.querySelector('.video-button');
+  return {toggle:!!btn&&!btn.closest('[hidden]'),image:shown('#song-image'),video:shown('#song-video')};})()`;
 const VIDEO_OFF = `(()=>{const st=document.getElementById('wivy-video-css');if(st)st.remove();const b=document.querySelector('ytmusic-av-toggle .song-button')||document.querySelector('.song-button');if(b)b.click();return true;})()`;
 
 // В странице за 0,4 с до конца трек ставится на паузу, и сайт не успевает запустить свой «следующий»
@@ -913,22 +919,29 @@ function stopPlayer() {
 async function applyVideo(on, tries) {
   const seq = ++videoSeq;
   if (!on) { await run(VIDEO_OFF).catch(() => {}); if (seq === videoSeq) setLive(false); return { has: false }; }
-  let has = false;
-  for (let i = 0; i < (tries || 6) && seq === videoSeq && videoWanted && want; i++) {
-    let r = null;
-    try { r = await run(VIDEO_ON); } catch (e) { r = null; }
-    if (r && r.has) { has = true; break; }
-    if (i === 5) tell('none');   // за три секунды переключателя Song / Video нет: показываем обложку, а клип подхватим, если появится позже
-    await sleep(500);
+  let has = false, coverSeen = 0;
+  const n = (tries || 6) * 2;   // опрос раз в 250 мс
+  for (let i = 0; i < n && seq === videoSeq && videoWanted && want; i++) {
+    let m = null;
+    try { m = await run(MODE); } catch (e) { m = null; }
+    if (m && m.toggle) {   // есть «Video»: переключаем страницу на клип
+      let r = null;
+      try { r = await run(VIDEO_ON); } catch (e) { r = null; }
+      if (r && r.has) { has = true; break; }
+    }
+    // обложечный трек: показан блок #song-image, переключателя нет, и так несколько опросов подряд (он мог дорисоваться позже)
+    if (m && m.image && !m.video && !m.toggle) { if (++coverSeen >= 4) break; } else coverSeen = 0;
+    await sleep(250);
   }
   if (seq !== videoSeq) return { has };
   if (has) {   // переключатель найден и нажат: ждём, пока на странице пойдёт настоящая картинка (до 5 секунд)
     let real = false;
-    for (let k = 0; k < 10 && seq === videoSeq && videoWanted && want; k++) {
+    for (let k = 0; k < 20 && seq === videoSeq && videoWanted && want; k++) {
       let f = null;
       try { f = await run(FRAMES); } catch (e) { f = null; }
       if (realClip(f)) { real = true; break; }
-      await sleep(500);
+      if (k >= 8 && f && f.img === true && f.vid === false) break;   // две секунды страница так и показывает обложку (#song-image), клипа нет
+      await sleep(250);
     }
     if (seq !== videoSeq) return { has: real };
     if (!real) { await run(VIDEO_OFF).catch(() => {}); has = false; }   // картинки нет: возвращаем «Song», показывать будем обложку

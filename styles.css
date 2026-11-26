@@ -887,7 +887,10 @@ svg { filter: var(--ol-icon, none); }
 .main { --tab-l: -9999px; --tab-w: 0px; }   /* положение выбранной вкладки задаёт renderer.js */
 
 /* прокручивается вся область; под полосой прокрутки заранее оставлено место, чтобы отступы слева, справа и снизу были равны (12 px) */
-.scroller { flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; scrollbar-width: none; padding: 0 12px 12px; margin-right: var(--qw); }
+/* Отступы по бокам (12 px) сделаны полями самой области, а не её padding: верхние углы области скруглены так же, как у полотна, и список,
+   уезжающий под панель при прокрутке, обрезается этой дугой. Раньше для этого стояла маска, но маска делала область «корнем фона»,
+   и блюр полотна (backdrop-filter) внутри неё при прокрутке пропадал; обычное скругление с overflow блюр не ломает. */
+.scroller { flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; scrollbar-width: none; padding: 0 0 12px; margin: 0 calc(var(--qw) + 12px) 0 12px; border-radius: var(--r-3) var(--r-3) 0 0; }
 .canvas { position: relative; padding: 24px; border-radius: var(--r-3); }
 .canvas > :last-child, .section:last-child { margin-bottom: 0; }   /* внизу списка тот же отступ 24 px, что и от карточек до края */
 
@@ -920,21 +923,6 @@ svg { filter: var(--ol-icon, none); }
   opacity: 0;
 }
 .main.scrolled .topbar::after { opacity: 1; }
-.main.scrolled .scroller {
-  -webkit-mask-image:
-    linear-gradient(#000, #000),
-    linear-gradient(#000, #000),
-    radial-gradient(circle at var(--r-3) var(--r-3), #000 calc(var(--r-3) - .5px), transparent var(--r-3)),
-    radial-gradient(circle at 0 var(--r-3), #000 calc(var(--r-3) - .5px), transparent var(--r-3));
-  -webkit-mask-size:
-    100% calc(100% - var(--r-3)),
-    calc(100% - 24px - 2 * var(--r-3)) var(--r-3),
-    var(--r-3) var(--r-3),
-    var(--r-3) var(--r-3);
-  -webkit-mask-position: 0 var(--r-3), calc(12px + var(--r-3)) 0, 12px 0, right 12px top 0;
-  -webkit-mask-repeat: no-repeat;
-}
-
 /* строки списка: содержимое вровень с краями заголовка, подсветка выступает наружу */
 .track { margin: 0 -8px; padding: 6px 8px; }
 
@@ -1471,3 +1459,9 @@ body.booting .titlebar { --tint: color-mix(in srgb, var(--rail) 96%, #000); back
 .yt-secs { margin-bottom: 14px; }
 .lyrics { white-space: pre-wrap; line-height: 1.75; font-size: var(--fs-lg); max-width: 720px; overflow-wrap: anywhere; }
 .lyrics-src { margin-top: 16px; color: var(--muted); font-size: var(--fs-sm); }
+
+/* фильтры «Понравившихся»: поле поиска по списку */
+.filter-input { display: inline-flex; align-items: center; }
+.filter-input input { min-width: 220px; padding: 7px 12px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--muted) 35%, transparent); background: var(--input-tint, transparent); color: var(--text); font: inherit; user-select: text; }
+.filter-input input:focus-visible { outline: none; border-color: var(--accent); }
+.filter-input input::placeholder { color: var(--muted); opacity: 1; }
