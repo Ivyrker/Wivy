@@ -14,7 +14,7 @@ All your music from SoundCloud, VK Music, YouTube Music and Yandex Music — in 
 [![Stars](https://img.shields.io/github/stars/Ivyrker/Wivy?style=flat)](https://github.com/Ivyrker/Wivy/stargazers)
 [![Last commit](https://img.shields.io/github/last-commit/Ivyrker/Wivy)](https://github.com/Ivyrker/Wivy/commits/main)
 
-<sub>README last updated: 19.11.2026</sub>
+<sub>README last updated: 27.11.2026</sub>
 
 </div>
 
@@ -56,6 +56,7 @@ The main idea is **customization**: wallpaper, transparency, glass effect, fonts
   - text and icon outline for readability on busy wallpapers
   - fonts (including your own from the `fonts` folder) and interface scale
   - panel patterns and platform-marker display modes
+  - Share your themes with friends in a couple of clicks
 - **Localization** — English by default, other languages are loaded from files in `locales` (you can add your own).
 - **Hotkeys** and playback settings.
 - **Custom window** — own title bar and window controls.
@@ -66,7 +67,7 @@ The main idea is **customization**: wallpaper, transparency, glass effect, fonts
 | :--- | :---: |
 | SoundCloud | ✅ |
 | VK Music | ✅/🚧(some bug, not so critical) |
-| YouTube Music | 🚧 |
+| YouTube Music | ✅ |
 | Yandex Music | 🚧 |
 
 > Support for the services marked 🚧 is under active development and may be incomplete or dont exists now.

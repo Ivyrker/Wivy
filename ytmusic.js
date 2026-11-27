@@ -91,7 +91,7 @@ async function webContext() {
   return ctx;
 }
 
-async function call(endpoint, body, query, retried) {
+async function call(endpoint, body, query, retried, authRetried) {
   const c = await webContext();
   const auth = await sapisidHash();
   const payload = { context: { client: { clientName: 'WEB_REMIX', clientVersion: c.version, hl: 'en', ...(c.visitor ? { visitorData: c.visitor } : {}) }, user: {} }, ...body };
@@ -105,8 +105,18 @@ async function call(endpoint, body, query, retried) {
     body: JSON.stringify(payload),
     signal: AbortSignal.timeout(20000),
   });
-  if (res.status === 413 && !retried && await trimCookies().catch(() => false)) return call(endpoint, body, query, true);   // раздутые cookie: чистим и повторяем
-  if (res.status === 401 || res.status === 403) throw new AuthError('Session expired');
+  if (res.status === 413 && !retried && await trimCookies().catch(() => false)) return call(endpoint, body, query, true, authRetried);   // раздутые cookie: чистим и повторяем
+  if (res.status === 401 || res.status === 403) {
+    // Прежде чем считать это выходом из аккаунта, пробуем освежить сессию: сперва лёгкий keepalive-запрос
+    // (он сам обновит cookie ротации, как это делает открытая вкладка браузера), а если это не помогло —
+    // тихую повторную попытку взять свежую сессию из Firefox. Только если и это не помогло, это настоящий выход.
+    if (!authRetried) {
+      if (await verifySession()) return call(endpoint, body, query, retried, true);
+      const reimported = await importFirefox().catch(() => ({ ok: false }));
+      if (reimported.ok) { scheduleKeepalive(); return call(endpoint, body, query, retried, true); }
+    }
+    throw new AuthError('Session expired');
+  }
   if (!res.ok) throw new Error('HTTP ' + res.status);
   return res.json();
 }
@@ -142,6 +152,21 @@ const parseDur = (s) => {
 const flexRuns = (r, i) => ((((r.flexColumns || [])[i] || {}).musicResponsiveListItemFlexColumnRenderer || {}).text || {}).runs || [];
 const browseIdOf = (run) => (((run || {}).navigationEndpoint || {}).browseEndpoint || {}).browseId || '';
 const SEP = /^[\s•·]+$/;
+
+// Просмотры и прослушивания приходят текстом на языке интерфейса сайта: «1.2M views», «45M plays», «1,234 views», «1,2 млн просмотров».
+// В приложении они считаются прослушиваниями (поле plays), как у SoundCloud.
+const VIEWS_RE = /^(\d[\d.,\s\u00a0\u202f]*?)\s*(k|m|b|тыс\.?|млн\.?|млрд\.?)?\s*(?:views?|plays?|просмотр\S*|прослушива\S*)/i;
+function parseViews(text) {
+  const m = VIEWS_RE.exec(String(text || '').trim());
+  if (!m) return 0;
+  const mult = { k: 1e3, 'тыс': 1e3, m: 1e6, 'млн': 1e6, b: 1e9, 'млрд': 1e9 }[String(m[2] || '').toLowerCase().replace(/\.$/, '')] || 1;
+  const raw = m[1].replace(/[\s\u00a0\u202f]/g, '');
+  const n = mult > 1 ? Number(raw.replace(',', '.')) : Number(raw.replace(/[.,]/g, ''));   // с буквой запятая это десятичный разделитель, без неё это разряды
+  return Number.isFinite(n) ? Math.round(n * mult) : 0;
+}
+const isViewsText = (x) => VIEWS_RE.test(String(x || '').trim());
+// число просмотров из любых текстовых кусочков (подзаголовок, соседний столбец списка)
+const viewsIn = (runs) => (runs || []).map((x) => parseViews(typeof x === 'string' ? x : x && x.text)).find(Boolean) || 0;
 const TYPE_WORDS = /^(song|video|album|single|ep|playlist|artist|profile|episode|podcast)$/i;
 
 // адрес страницы исполнителя по номеру канала (UC...): по нему приложение открывает его страницу
@@ -161,15 +186,17 @@ function toTrack(r, fallback) {
   const artists = meta.filter((x) => /^UC/.test(browseIdOf(x))).map((x) => x.text);
   let artist = artists.join(', ');
   if (!artist) {   // в списках библиотеки исполнитель идёт простым текстом
-    const plain = meta.map((x) => x.text).filter((x) => x && !SEP.test(x) && !TYPE_WORDS.test(x) && !parseDur(x));
+    const plain = meta.map((x) => x.text).filter((x) => x && !SEP.test(x) && !TYPE_WORDS.test(x) && !parseDur(x) && !isViewsText(x));
     artist = plain[0] || (fallback && fallback.artist) || '';
   }
   const fixed = textOf((((r.fixedColumns || [])[0] || {}).musicResponsiveListItemFixedColumnRenderer || {}).text);
   const dur = parseDur(fixed) || meta.map((x) => parseDur(x.text)).find(Boolean) || 0;
+  // просмотры лежат в подзаголовке (клипы) или в отдельном столбце (топ песен исполнителя), поэтому смотрим все столбцы, кроме названия
+  const plays = viewsIn(meta) || viewsIn((r.flexColumns || []).slice(2).flatMap((c, i) => flexRuns(r, i + 2)));
   return {
     ytId: videoId, title, artist, artistId: 0, artistUrl: firstArtistUrl(meta) || (fallback && fallback.artistUrl) || '', dur,
     art: artOf(r.thumbnail) || (fallback && fallback.art) || '',
-    url: `${ORIGIN}/watch?v=${videoId}`, plays: 0, likes: 0, date: '', genre: '',
+    url: `${ORIGIN}/watch?v=${videoId}`, plays, likes: 0, date: '', genre: '',
     lock: '',   // замков нет: если трек не играет, приложение разбирается с этим при воспроизведении, а не помечает его заранее
   };
 }
@@ -229,7 +256,7 @@ const twoRowTrack = (r, videoId) => {
   if (!artist) artist = (sub.map((x) => x.text).find((x) => x && !SEP.test(x) && !TYPE_WORDS.test(x) && !/^\d/.test(x) && !/views?|просмотр|plays?|прослуш/i.test(x))) || '';
   const title = textOf(r.title);
   if (!title) return null;
-  return { ytId: videoId, title, artist, artistId: 0, artistUrl: firstArtistUrl(sub), dur: 0, art: artOf(r.thumbnailRenderer), url: `${ORIGIN}/watch?v=${videoId}`, plays: 0, likes: 0, date: '', genre: '', lock: '' };
+  return { ytId: videoId, title, artist, artistId: 0, artistUrl: firstArtistUrl(sub), dur: 0, art: artOf(r.thumbnailRenderer), url: `${ORIGIN}/watch?v=${videoId}`, plays: viewsIn(sub), likes: 0, date: '', genre: '', lock: '' };
 };
 function shelfOf(sh) {
   const title = textOf(collectKey(sh.header, 'title')[0]);
@@ -451,7 +478,7 @@ function panelTrack(r) {
   if (!r || !r.videoId) return null;
   const by = (r.longBylineText && r.longBylineText.runs) || [];
   const artists = by.filter((x) => /^UC/.test(browseIdOf(x))).map((x) => x.text);
-  const plain = by.map((x) => x.text).filter((x) => x && !SEP.test(x) && !/^\d{4}$/.test(x));
+  const plain = by.map((x) => x.text).filter((x) => x && !SEP.test(x) && !/^\d{4}$/.test(x) && !isViewsText(x));
   const album = (by.find((x) => /^MPRE/.test(browseIdOf(x))) || {}).text || '';
   const artist = artists.join(', ') || plain[0] || '';
   const title = textOf(r.title);
@@ -459,7 +486,7 @@ function panelTrack(r) {
   const year = (by.map((x) => x.text).find((x) => /^\d{4}$/.test(x))) || '';
   return {
     ytId: r.videoId, title, artist, artistId: 0, artistUrl: firstArtistUrl(by), dur: parseDur(textOf(r.lengthText)),
-    art: artOf(r.thumbnail), url: `${ORIGIN}/watch?v=${r.videoId}`, plays: 0, likes: 0, date: year ? year + '-01-01' : '', genre: album, lock: '',
+    art: artOf(r.thumbnail), url: `${ORIGIN}/watch?v=${r.videoId}`, plays: viewsIn(by) || parseViews(textOf(r.viewCountText)), likes: 0, date: year ? year + '-01-01' : '', genre: album, lock: '',
   };
 }
 async function watchNext(videoId, we) {
@@ -541,40 +568,95 @@ async function status() {
   try { return { ok: true, connected: !!(await authCookie()), mode: 'web' }; } catch (e) { return { ok: true, connected: false, mode: 'web' }; }
 }
 
-let loginWin = null;
-function loginWindow(parent) {
-  return new Promise((resolve) => {
-    if (loginWin && !loginWin.isDestroyed()) { loginWin.focus(); return resolve({ ok: false, error: 'Window is already open' }); }
-    const win = new BrowserWindow({
-      width: 520, height: 780, parent: parent || undefined, autoHideMenuBar: true, title: 'YouTube Music', backgroundColor: '#ffffff',
-      webPreferences: { partition: PARTITION, sandbox: true, contextIsolation: true, nodeIntegration: false },
+/* ---------- Поддержание сессии ---------- */
+// У Google часть cookie входа (__Secure-*SIDTS, *SIDCC) недолговечна и обновляется каждые ~10 минут:
+// в обычной вкладке браузера это происходит само, при каждой обычной загрузке страницы. Здесь же API-запросы
+// идут напрямую в youtubei/v1 и такой «освежающей» загрузки не делают, поэтому раз в несколько минут сами
+// обращаемся к странице сайта, которая как раз этим и занимается. Ответ приходит через ses().fetch (сетевой
+// стек Chromium для этого же раздела cookie), поэтому любые Set-Cookie из него сохраняются в хранилище cookie
+// раздела сами, как это сделал бы настоящий браузер — переносить их вручную не нужно.
+const KEEPALIVE_MS = 8 * 60 * 1000;
+let keepaliveTimer = null;
+
+async function verifySession() {
+  if (!(await authCookie())) return false;
+  try {
+    const auth = await sapisidHash();
+    await ses().fetch(ORIGIN + '/verify_session', {
+      method: 'GET',
+      headers: { 'User-Agent': chromeUA(), Accept: '*/*', Origin: ORIGIN, Referer: ORIGIN + '/', 'X-Origin': ORIGIN, Authorization: auth },
+      signal: AbortSignal.timeout(10000),
     });
-    loginWin = win;
-    win.webContents.setUserAgent(chromeUA());
-    win.webContents.setWindowOpenHandler(({ url }) => { if (/^https:\/\/([\w-]+\.)*(google|youtube)\.com\//.test(url)) win.loadURL(url); return { action: 'deny' }; });
-    let done = false;
-    const finish = (r) => { if (done) return; done = true; clearInterval(timer); clearTimeout(limit); if (!win.isDestroyed()) win.destroy(); loginWin = null; resolve(r); };
-    // через страницу входа Google с возвратом на music.youtube.com
-    win.loadURL('https://accounts.google.com/ServiceLogin?service=youtube&continue=' + encodeURIComponent(ORIGIN + '/')).catch(() => {});
-    const timer = setInterval(async () => {
-      try {
-        // Google отказал встроенному окну («браузер не поддерживается»): переходим ко входу через обычный браузер
-        if (!win.isDestroyed() && /^https:\/\/accounts\.google\./.test(win.webContents.getURL())) {
-          const bad = /signin\/(v\d\/)?rejected|deniedsignin/.test(win.webContents.getURL())
-            || await win.webContents.executeJavaScript(`/may not be secure|not secure|isn.t secure|небезопасн|не защищ|не поддерживается/i.test(document.body ? document.body.innerText : '')`, true).catch(() => false);
-          if (bad) return finish({ fallback: true });
-        }
-        if (!win.isDestroyed() && /^https:\/\/music\.youtube\.com\//.test(win.webContents.getURL()) && await authCookie()) {
-          ctx = null;
-          await ses().cookies.flushStore().catch(() => {});
-          finish({ ok: true });
-        }
-      } catch (e) { /* пробуем в следующий раз */ }
-    }, 1000);
-    const limit = setTimeout(() => finish({ ok: false, error: 'Sign-in timed out' }), 10 * 60 * 1000);
-    win.on('closed', () => finish({ ok: false, error: 'Window closed' }));
-  });
+    await ses().cookies.flushStore().catch(() => {});
+    return true;
+  } catch (e) { return false; }
 }
+function scheduleKeepalive() {
+  clearInterval(keepaliveTimer);
+  keepaliveTimer = setInterval(() => { verifySession().catch(() => {}); }, KEEPALIVE_MS);
+  if (keepaliveTimer.unref) keepaliveTimer.unref();
+}
+function stopKeepalive() { clearInterval(keepaliveTimer); keepaliveTimer = null; }
+
+// Автоматическая подхватка входа из Firefox без нажатия «Войти»: пока в приложении нет сессии, раз в несколько
+// минут тихо проверяем, не вошёл ли пользователь в music.youtube.com в своём Firefox, и если да — забираем её.
+// Для Chrome, Edge и других браузеров это недоступно: начиная с Chrome 127 их cookie шифруются ключом,
+// привязанным к системе и самому браузеру (app-bound encryption), и ни одна программа снаружи браузера
+// прочитать их не может — это защита от кражи сессий, а не недоработка этого приложения. Для них остаётся
+// открыть сайт в этом браузере и один раз вставить cookie вручную (уже есть в текущем окне входа).
+const AUTO_IMPORT_MS = 5 * 60 * 1000;
+let autoImportTimer = null;
+function scheduleAutoImport() {
+  clearInterval(autoImportTimer);
+  autoImportTimer = setInterval(async () => {
+    if (await authCookie().catch(() => '')) return;   // уже вошли: подхватывать нечего
+    try {
+      const r = await importFirefox();
+      if (r.ok) { scheduleKeepalive(); log('auto-signed in from Firefox'); }
+    } catch (e) { /* попробуем на следующем тике */ }
+  }, AUTO_IMPORT_MS);
+  if (autoImportTimer.unref) autoImportTimer.unref();
+}
+scheduleAutoImport();   // работает всё время, пока открыто приложение, вне зависимости от того, открыты ли настройки
+authCookie().then((v) => { if (v) scheduleKeepalive(); }).catch(() => {});   // сессия могла остаться с прошлого запуска
+
+let loginWin = null;
+
+// Google специально отклоняет вход в собственный аккаунт из встроенного окна приложения («этот браузер может быть
+// небезопасен») — именно поэтому раньше вылезало окно с просьбой подтвердить вход ключом/Windows Hello и само
+// приложение зависало. Поэтому встроенное окно входа Google здесь больше не используется вовсе: сайт сразу
+// открывается в настоящем браузере пользователя, который умеет и предъявить ключ безопасности, и Windows Hello,
+// и passkey — как от него и ждёт Google.
+
+/* ---------- Какой браузер открывать: берём браузер по умолчанию ---------- */
+// Это не чтение cookie, а обычный системный вопрос «чем открывать https-ссылки» — тот же, что показывают
+// системные настройки «Приложения по умолчанию». Нужен только для того, чтобы показать точные подписи шагов
+// («Opera», «Яндекс Браузер» и т.д.), а не для доступа к данным браузера.
+function detectDefaultBrowser() {
+  if (process.platform !== 'win32') return 'unknown';
+  try {
+    const { execFileSync } = require('child_process');
+    const out = execFileSync('reg', ['query', 'HKCU\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\https\\UserChoice', '/v', 'ProgId'], { encoding: 'utf8', windowsHide: true, timeout: 4000 });
+    const id = ((/ProgId\s+REG_SZ\s+(\S+)/.exec(out) || [])[1] || '');
+    if (/^FirefoxURL/i.test(id)) return 'firefox';
+    if (/^ChromeHTML/i.test(id)) return 'chrome';
+    if (/^MSEdge/i.test(id)) return 'edge';
+    if (/^Opera/i.test(id)) return 'opera';
+    if (/^Yandex/i.test(id)) return 'yandex';
+    if (/^Brave/i.test(id)) return 'brave';
+    return 'unknown';
+  } catch (e) { return 'unknown'; }
+}
+const BROWSER_NAMES = { firefox: 'Firefox', chrome: 'Chrome', edge: 'Edge', opera: 'Opera', yandex: 'Yandex Browser', brave: 'Brave', unknown: 'your browser' };
+// во всех этих браузерах (кроме Firefox) нужная панель DevTools называется одинаково — они все построены на Chromium
+const CHROMIUM_STEPS = {
+  chrome: ['Press <b>F12</b>, open the <b>Application</b> tab (top row of DevTools), then <b>Cookies</b> in the left list and click <b>https://music.youtube.com</b>.'],
+  edge: ['Press <b>F12</b>, open the <b>Application</b> tab, then <b>Cookies</b> on the left and click <b>https://music.youtube.com</b>.'],
+  brave: ['Press <b>F12</b>, open the <b>Application</b> tab, then <b>Cookies</b> on the left and click <b>https://music.youtube.com</b>.'],
+  opera: ['Press <b>F12</b> (or <b>Ctrl+Shift+I</b>), open the <b>Application</b> tab, then <b>Cookies</b> on the left and click <b>https://music.youtube.com</b>.'],
+  yandex: ['Press <b>F12</b>, open the <b>Application</b> tab (in a Russian-language build: <b>Приложение</b>), then <b>Cookies</b> and click <b>https://music.youtube.com</b>.'],
+  unknown: ['Press <b>F12</b>, look for an <b>Application</b> (or <b>Storage</b>) tab, then <b>Cookies</b> and click <b>https://music.youtube.com</b>.'],
+};
 
 /* ---------- Запасной вход: через обычный браузер и вставку cookie ---------- */
 // Google не пускает во встроенные окна, а cookie обычного браузера приложению недоступны (браузеры их шифруют).
@@ -695,19 +777,29 @@ async function importFirefox() {
 /* ---------- Вход через обычный браузер ---------- */
 // Google не пускает во встроенные окна. Сайт открывается в браузере по умолчанию, а приложение ждёт, пока в Firefox появится вход.
 // Для остальных браузеров под спойлером есть ручной ввод cookie по одной.
-const pasteHtml = (auto) => `<!doctype html><meta charset="utf-8"><title>YouTube Music: sign in with your browser</title>
+// browser: 'firefox' | 'chrome' | 'edge' | 'opera' | 'yandex' | 'brave' | 'unknown' — браузер по умолчанию, в котором только что открылась страница.
+// watchFirefox: приложение параллельно следит за Firefox (он установлен), даже если по умолчанию другой браузер.
+const pasteHtml = (browser, watchFirefox) => {
+  const name = BROWSER_NAMES[browser] || BROWSER_NAMES.unknown;
+  const isFirefox = browser === 'firefox';
+  const steps = isFirefox
+    ? ['Press <b>F12</b>, open the <b>Storage</b> tab, then <b>Cookies</b> on the left and click <b>https://music.youtube.com</b>.']
+    : (CHROMIUM_STEPS[browser] || CHROMIUM_STEPS.unknown);
+  const tip = !isFirefox && watchFirefox ? '<p style="margin:10px 0 0;color:#777">Tip: if you sign in in Firefox instead, Wivy picks it up on its own — no copying needed.</p>' : '';
+  return `<!doctype html><meta charset="utf-8"><title>YouTube Music: sign in with ${name}</title>
 <body style="font:14px system-ui;margin:0;padding:16px 22px;color:#222;background:#fff">
 <h3 style="margin:0 0 8px">Sign in to YouTube Music</h3>
-<p id="st" style="margin:0 0 12px;color:#444;line-height:1.5">${auto
-  ? 'Your browser was opened on music.youtube.com. Sign in there: Wivy continues automatically as soon as you are signed in (works with Firefox).'
-  : 'Google doesn’t allow sign-in inside apps, and automatic sign-in works only with Firefox. Enter the cookies below instead.'}</p>
-<details ${auto ? '' : 'open'}><summary style="cursor:pointer;color:#555">Other browser? Enter cookies manually</summary>
+<p id="st" style="margin:0 0 12px;color:#444;line-height:1.5">${isFirefox
+    ? `${name} just opened on music.youtube.com. Sign in there — Wivy continues automatically as soon as you are signed in.`
+    : `${name} just opened on music.youtube.com. Google doesn’t allow sign-in inside apps directly, so after signing in there, copy a few cookie values back here.`}</p>
+<details ${isFirefox ? '' : 'open'}><summary style="cursor:pointer;color:#555">${isFirefox ? 'Signed in with a different browser? Enter cookies manually' : `Steps for ${name}`}</summary>
 <ol style="padding-left:20px;line-height:1.5;margin:8px 0">
-<li>Sign in to YouTube Music in your browser and press <b>F12</b>.</li>
-<li>Open <b>Storage → Cookies → music.youtube.com</b> (Firefox) or <b>Application → Cookies</b> (Chrome, Edge).</li>
+<li>Sign in to YouTube Music in ${isFirefox ? 'that other browser' : name}.</li>
+<li>${steps.join('</li><li>')}</li>
 <li>For each name below copy <b>only its value</b> (without quotes).</li></ol>
 <div id="f" style="display:grid;grid-template-columns:150px 1fr;gap:6px 10px;align-items:center"></div>
 <p style="margin:12px 0 0"><button style="padding:7px 20px" onclick="go()">Connect</button></p></details>
+${tip}
 <script>
 const REQ=${JSON.stringify(REQUIRED)},OPT=${JSON.stringify(OPTIONAL)};
 const f=document.getElementById('f');
@@ -715,6 +807,7 @@ function row(n,req){f.insertAdjacentHTML('beforeend','<label for="c_'+n+'"><b>'+
 REQ.forEach(n=>row(n,true));OPT.forEach(n=>row(n,false));
 function go(){const o={};REQ.concat(OPT).forEach(n=>{o[n]=document.getElementById('c_'+n).value;});window.__val=JSON.stringify(o);}
 </script>`;
+};
 
 function parseCookieHeader(text) {
   return String(text || '').replace(/^\s*cookie\s*:/i, '').split(/;|\n/).map((x) => x.trim()).filter(Boolean).map((x) => {
@@ -733,22 +826,22 @@ async function applyCookies(list) {
   await ses().cookies.flushStore().catch(() => {});
 }
 
-function loginBrowser(parent, auto) {
+function loginBrowser(parent, browser, watchFirefox) {
   return new Promise((resolve) => {
     shell.openExternal(ORIGIN + '/').catch(() => {});
     const win = new BrowserWindow({
-      width: 640, height: auto ? 230 : 560, parent: parent || undefined, autoHideMenuBar: true, title: 'YouTube Music', backgroundColor: '#ffffff',
+      width: 640, height: browser === 'firefox' ? 230 : 560, parent: parent || undefined, autoHideMenuBar: true, title: 'YouTube Music', backgroundColor: '#ffffff',
       webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
     });
     loginWin = win;
-    win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(pasteHtml(auto))).catch(() => {});
+    win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(pasteHtml(browser, watchFirefox))).catch(() => {});
     let done = false;
     const finish = (r) => { if (done) return; done = true; clearInterval(timer); clearInterval(watch); clearTimeout(limit); if (!win.isDestroyed()) win.destroy(); loginWin = null; resolve(r); };
     let busy = false;
     let watching = false;
-    // вход в Firefox: раз в пару секунд смотрим, появилась ли сессия
+    // вход в Firefox: раз в пару секунд смотрим, появилась ли сессия (работает, даже если по умолчанию другой браузер)
     const watch = setInterval(async () => {
-      if (!auto || watching || done) return;
+      if (!watchFirefox || watching || done) return;
       watching = true;
       try { if ((await importFirefox()).ok) finish({ ok: true }); } catch (e) { /* пробуем позже */ } finally { watching = false; }
     }, 2000);
@@ -789,20 +882,25 @@ function loginBrowser(parent, auto) {
   });
 }
 
-// 1) тихо пробуем сессию Firefox; 2) если Firefox есть, но входа нет: сайт в браузере и ожидание входа; 3) иначе окно Google, а при отказе ручной ввод
+// 1) тихо пробуем сессию Firefox; 2) иначе сразу открываем настоящий браузер пользователя (по умолчанию) —
+// встроенное окно Google больше не используется: Google всё равно отклоняет его как «небезопасный браузер»
+// и из-за этого сам показывал странные запросы ключа безопасности/Windows Hello, которые встроенное окно
+// не умеет правильно обработать. В настоящем браузере это проходит штатно.
 async function login(parent) {
   if (loginWin && !loginWin.isDestroyed()) { loginWin.focus(); return { ok: false, error: 'Window is already open' }; }
   lastTriedSig = '';
   const quick = await importFirefox().catch(() => ({ ok: false, hasProfile: false }));
-  if (quick.ok) return { ok: true };
-  if (quick.hasProfile) return loginBrowser(parent, true);
-  const r = await loginWindow(parent);
-  return r && r.fallback ? loginBrowser(parent, false) : r;
+  if (quick.ok) { scheduleKeepalive(); return { ok: true }; }
+  const browser = detectDefaultBrowser();
+  const r = await loginBrowser(parent, browser, quick.hasProfile);
+  if (r && r.ok) scheduleKeepalive();
+  return r;
 }
 
 async function logout() {
   try { await ses().clearStorageData(); await ses().clearCache(); } catch (e) { /* ничего */ }
   ctx = null;
+  stopKeepalive();
   stopPlayer();
   return { ok: true };
 }

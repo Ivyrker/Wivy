@@ -2,14 +2,16 @@
   "entries": [
     {
       "version": "1.0.1",
-      "date": "2026-11-19",
+      "date": "2026-11-27",
       "title": "Visual enhancements and conveniences",
       "items": [
-        "Now you can share your themes and wallpapers with friends using just a single file",
+        "Now you can share your themes and wallpapers with friends using just in few clicks.",
         "The application can now be minimized to the system tray.",
-        "Incomplete support for YouTube Music has been added(firefox onle tryed).",
-        "A minor revision of the UI display architecture to integrate with YouTube functionality",
-        "With YouTube services, you can now dynamically display the covers of playing tracks and clips in the background in maximum quality (which YouTube itself gives you)"
+        "Support for YouTube Music has been added(firefox auto only).",
+        "A minor revision of the UI display architecture to integrate with YouTube functionality.",
+        "With YouTube services, you can now dynamically display the covers of playing tracks and clips in the background in maximum quality (which YouTube itself gives you).",
+        "Added filters to the likes section.",
+        "Added free choice of any colors by their color codes."
       ],
       "images": ["101.png"]
     },

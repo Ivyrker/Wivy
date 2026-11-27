@@ -329,15 +329,36 @@ body.modal-open .titlebar { -webkit-app-region: no-drag; } /* чтобы кли�
 /* ---------- Список треков ---------- */
 .track {
   display: grid;
-  grid-template-columns: 44px 1fr 56px;
+  grid-template-columns: 44px 1fr 56px 30px;
   align-items: center;
   gap: 14px;
   padding: 6px 12px;
   border-radius: var(--r-3);
   cursor: pointer;
 }
-.track.with-ico { grid-template-columns: 22px 44px 1fr 56px; }
-.track.with-src { grid-template-columns: 44px 1fr 160px 56px; }
+.track.with-ico { grid-template-columns: 22px 44px 1fr 56px 30px; }
+.track.with-src { grid-template-columns: 44px 1fr 160px 56px 30px; }
+/* столбец прослушиваний появляется, только если в списке есть хотя бы один трек с числом (у SoundCloud есть, у части других сервисов нет) */
+.track.has-plays { grid-template-columns: 44px 1fr 78px 56px 30px; }
+.track.with-ico.has-plays { grid-template-columns: 22px 44px 1fr 78px 56px 30px; }
+.track.with-src.has-plays { grid-template-columns: 44px 1fr 160px 78px 56px 30px; }
+
+/* прослушивания: маленький треугольник и число, прижаты вправо к длительности, чтобы не спорить с названием */
+.t-plays { display: flex; align-items: center; justify-content: flex-end; gap: 4px; color: var(--muted); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.t-plays svg { width: 11px; height: 11px; flex-shrink: 0; opacity: .8; }
+
+/* «⋯»: видна при наведении на строку, у играющего трека и пока открыто меню */
+.t-more { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; opacity: 0; }
+.t-more svg { width: 20px; height: 20px; }
+.track:hover .t-more, .track.playing .t-more, .t-more:focus-visible, .t-more.open { opacity: 1; }
+.t-more:hover, .t-more.open { color: var(--text); background: color-mix(in srgb, var(--text) 12%, transparent); }
+
+.track-menu { position: fixed; z-index: 70; min-width: 190px; padding: 5px; border-radius: var(--r-3); background: var(--panel); border: 1px solid var(--line); box-shadow: 0 10px 30px rgba(0, 0, 0, .45); }
+.track-menu button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 0; border-radius: var(--r-2); background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.track-menu button svg { width: 18px; height: 18px; flex-shrink: 0; color: var(--muted); }
+.track-menu button:hover:not(:disabled) { background: color-mix(in srgb, var(--text) 10%, transparent); }
+.track-menu button:disabled { opacity: .5; cursor: default; }
+.track-menu button.on svg { color: var(--accent-ink); }
 
 .mini { position: relative; width: 44px; height: 44px; border-radius: var(--r-2); }
 .mini .ico {
@@ -436,6 +457,24 @@ body.modal-open .titlebar { -webkit-app-region: no-drag; } /* чтобы кли�
 .np-meta { flex: 1; min-width: 0; }
 .np-artist { color: var(--muted); font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .np-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* бегущая строка: включается скриптом (класс .marq) только у тех строк, которые не влезают */
+.marq {
+  text-overflow: clip;
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 18px), transparent);
+  mask-image: linear-gradient(90deg, #000 calc(100% - 18px), transparent);
+}
+.marq-in { display: inline-block; will-change: transform; animation: marq var(--marq-t, 8s) ease-in-out infinite alternate; }
+.np-meta:hover .marq-in { animation-play-state: paused; }
+/* едет до конца строки, там пауза, и обратно: без рывка при возврате и без дубля текста */
+@keyframes marq {
+  0%, 14% { transform: translateX(0); }
+  86%, 100% { transform: translateX(calc(-1 * var(--marq-d, 100px))); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .marq-in { display: inline; animation: none; }
+  .marq { text-overflow: ellipsis; -webkit-mask-image: none; mask-image: none; }
+}
 
 .heart path { fill: none; }
 .heart.on { color: var(--accent-ink); }
@@ -555,6 +594,13 @@ input[type="range"]:focus-visible::-webkit-slider-thumb { opacity: 1; }
     var(--panel);
 }
 .swatch.auto { background: var(--panel); }
+.swatch.custom { position: relative; cursor: pointer; background: conic-gradient(from 0deg, #f33, #fb3, #7d3, #3dc, #39f, #93f, #f3a, #f33); }
+.swatch.custom input[type="color"] { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; opacity: 0; cursor: pointer; }
+.swatch.custom:focus-within { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
+.hex-row { margin-top: 10px; }
+.hex-input { width: 220px; max-width: 100%; padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--r-2); background: var(--panel); color: var(--text); font: 13px ui-monospace, Consolas, monospace; }
+.hex-input:focus { outline: 2px solid var(--accent-ink); outline-offset: 1px; }
+.hex-input.bad { border-color: #e5484d; outline: 2px solid #e5484d; }
 .swatch-name { margin-top: 10px; color: var(--muted); font-size: var(--fs-md); min-height: 1.4em; }
 
 /* ползунки в настройках: насыщенность и выбор темы */

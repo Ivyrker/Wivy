@@ -94,6 +94,19 @@
     return toHex([f(0) * 255, f(8) * 255, f(4) * 255]);
   };
 
+  // свободный цвет: принимает #rgb, #rrggbb, rgb(r, g, b), «r g b» и «r,g,b»; возвращает '#rrggbb' или null
+  function parseColor(str) {
+    const v = String(str || '').trim().toLowerCase();
+    let m = /^#?([0-9a-f]{3})$/.exec(v);
+    if (m) return '#' + m[1].split('').map((c) => c + c).join('');
+    m = /^#?([0-9a-f]{6})$/.exec(v);
+    if (m) return '#' + m[1];
+    m = /^(?:rgb\(\s*)?(\d{1,3})\s*[,\s]\s*(\d{1,3})\s*[,\s]\s*(\d{1,3})\s*\)?$/.exec(v);
+    if (m && [m[1], m[2], m[3]].every((n) => Number(n) <= 255)) return toHex([m[1], m[2], m[3]].map(Number));
+    return null;
+  }
+  const isHexColor = (v) => typeof v === 'string' && /^#[0-9a-f]{6}$/.test(v);
+
   /* ---------- Темы (от светлой к тёмной) ---------- */
   // k — насколько сильно цвет оформления подмешивается в каждую поверхность
   const GRAY = '#a7a7a7';
@@ -204,9 +217,9 @@
     const pct = (v) => Number.isFinite(v) && v >= 0 && v <= 100;
     if (THEMES[saved.theme]) settings.theme = saved.theme;
     if (saved.tint === null) settings.tint = null;
-    if (TINTS.some((p) => p.id === saved.tint)) settings.tint = saved.tint;
+    if (TINTS.some((p) => p.id === saved.tint) || isHexColor(saved.tint)) settings.tint = saved.tint;
     if (pct(saved.sat)) settings.sat = Math.round(saved.sat);
-    if (saved.textColor === 'auto' || TEXT_FIXED[saved.textColor] || TINTS.some((p) => p.id === saved.textColor)) settings.textColor = saved.textColor;
+    if (saved.textColor === 'auto' || TEXT_FIXED[saved.textColor] || TINTS.some((p) => p.id === saved.textColor) || isHexColor(saved.textColor)) settings.textColor = saved.textColor;
     if (pct(saved.textSat)) settings.textSat = Math.round(saved.textSat);
     if (SOURCE_MODES[saved.sourceMode]) settings.sourceMode = saved.sourceMode;
     if (['auto', 'soundcloud', 'vk', 'ytmusic'].includes(saved.profileSrc)) settings.profileSrc = saved.profileSrc;
@@ -221,7 +234,7 @@
     if (['relevance', 'duration', 'title', 'plays'].includes(saved.searchSort)) settings.searchSort = saved.searchSort;
     BOOLS.forEach((k) => { if (typeof saved[k] === 'boolean') settings[k] = saved[k]; });
     Object.keys(NUMS).forEach((k) => { const [lo, hi] = NUMS[k]; if (Number.isFinite(saved[k]) && saved[k] >= lo && saved[k] <= hi) settings[k] = Math.round(saved[k]); });
-    ['bgColor', 'outlineColor'].forEach((k) => { if (saved[k] === 'auto' || TEXT_FIXED[saved[k]] || TINTS.some((p) => p.id === saved[k])) settings[k] = saved[k]; });
+    ['bgColor', 'outlineColor'].forEach((k) => { if (saved[k] === 'auto' || TEXT_FIXED[saved[k]] || TINTS.some((p) => p.id === saved[k]) || isHexColor(saved[k])) settings[k] = saved[k]; });
     if (saved.outlineStyle === 'soft' || saved.outlineStyle === 'sharp') settings.outlineStyle = saved.outlineStyle;
     if (WP_FITS[saved.wpFit]) settings.wpFit = saved.wpFit;
     if (WP_POS[saved.wpPos]) settings.wpPos = saved.wpPos;
@@ -232,17 +245,19 @@
   const saveSettings = () => { try { localStorage.setItem(STORE_KEY, JSON.stringify(settings)); } catch (e) { /* ничего */ } };
 
   const tintColor = (p) => hsl(p.h, settings.sat, p.l);
-  const tintHex = () => { const p = TINTS.find((x) => x.id === settings.tint); return p ? tintColor(p) : null; };
+  const tintHex = () => { if (isHexColor(settings.tint)) return settings.tint; const p = TINTS.find((x) => x.id === settings.tint); return p ? tintColor(p) : null; };
 
   // цвет текста: на тёмных темах оттенок светлый, на светлых тёмный, чтобы его можно было читать
   const textHue = (p) => hsl(p.h, settings.textSat, THEMES[settings.theme].dark ? 62 : 38);
   function customText() {
     if (settings.textColor === 'auto') return null;
+    if (isHexColor(settings.textColor)) return settings.textColor;
     if (TEXT_FIXED[settings.textColor]) return TEXT_FIXED[settings.textColor].hex;
     const p = TINTS.find((x) => x.id === settings.textColor);
     return p ? textHue(p) : null;
   }
   const textName = () => settings.textColor === 'auto' ? L('Auto')
+    : isHexColor(settings.textColor) ? settings.textColor.toUpperCase()
     : TEXT_FIXED[settings.textColor] ? TEXT_FIXED[settings.textColor].name
     : (TINTS.find((x) => x.id === settings.textColor) || {}).name;
 
@@ -252,6 +267,7 @@
   // насыщенность своя, не зависит от цвета оформления, яркость берётся у темы
   function bgBase() {
     const c = settings.bgColor;
+    if (isHexColor(c)) return c;   // свой цвет берётся как есть
     if (c === 'white') return '#ffffff';
     if (c === 'black') return '#000000';
     const p = TINTS.find((x) => x.id === c);
@@ -776,6 +792,7 @@
   // цвет обводки: «Авто» — контрастный к тексту, иначе белый, чёрный или выбранный оттенок
   function outlineRgb(text) {
     const c = settings.outlineColor;
+    if (isHexColor(c)) return rgb(c).join(',');
     if (c === 'white') return '255,255,255';
     if (c === 'black') return '0,0,0';
     const p = TINTS.find((x) => x.id === c);
@@ -1056,10 +1073,23 @@
     ? L('This track isn’t available in your region.')
     : L('This track is DRM-protected, so it can’t play here. Open it on SoundCloud instead.'));
 
-  const trackRow = (t, key) => {
+  // число прослушиваний как на SoundCloud: до тысячи целиком, дальше 1.2K, 12K, 3.4M, 1.5B (дробная часть отбрасывается, а не округляется)
+  const fmtPlays = (n) => {
+    n = Math.floor(Number(n) || 0);
+    if (n < 1000) return String(n);
+    for (const [v, s] of [[1e9, 'B'], [1e6, 'M'], [1e3, 'K']]) {
+      if (n >= v) { const x = n / v; const d = x < 10 ? 10 : 1; return (Math.floor(x * d) / d).toString().replace(/\.0$/, '') + s; }
+    }
+    return String(n);
+  };
+  const rowTracks = new Map();   // номер трека -> трек: так меню «⋯» находит трек строки в любом списке (поиск, лайки, страница артиста…)
+
+  // hasPlays: в списке есть хотя бы один трек с числом прослушиваний, и у строк появляется выровненный столбец под него
+  const trackRow = (t, key, hasPlays) => {
     const src = platform(t.source);
     const mode = markMode();
-    const cls = mode === 'icon' ? 'with-ico' : mode === 'label' ? 'with-src' : '';
+    const cls = (mode === 'icon' ? 'with-ico' : mode === 'label' ? 'with-src' : '') + (hasPlays ? ' has-plays' : '');
+    rowTracks.set(t.id, t);
     return `
       <div class="track ${cls} ${t.lock ? 'locked' : ''} ${current() && current().id === t.id ? 'playing' : ''}" data-track="${t.id}" data-list="${key || ''}">
         ${mode === 'icon' ? srcIcon(src, '') : ''}
@@ -1069,7 +1099,9 @@
           <div class="t-artist">${artistLink(t)}</div>
         </div>
         ${mode === 'label' ? `<div class="src" style="${srcVars(src)}"><i class="dot"></i>${esc(src.name)}</div>` : ''}
+        ${hasPlays ? `<div class="t-plays"${t.plays ? ` title="${esc(L('{0} plays', new Intl.NumberFormat().format(t.plays)))}"` : ''}>${t.plays ? `${I.play}<span>${fmtPlays(t.plays)}</span>` : ''}</div>` : ''}
         <div class="t-dur">${fmt(t.dur)}</div>
+        <button class="t-more" type="button" title="${esc(L('More'))}" aria-label="${esc(L('More'))}" aria-haspopup="menu">${I.more}</button>
       </div>`;
   };
 
@@ -1091,7 +1123,11 @@
 
   // отдельные очереди на странице артиста: «Popular» и «All tracks» играют каждая свой список, не смешиваясь
   const trackLists = {};
-  const trackList = (list, key, full) => { if (key) trackLists[key] = full || list; return list.map((t) => trackRow(t, key)).join(''); };
+  const trackList = (list, key, full) => {
+    if (key) trackLists[key] = full || list;
+    const hasPlays = list.some((t) => t.plays > 0);
+    return list.map((t) => trackRow(t, key, hasPlays)).join('');
+  };
 
   // плашка вместо содержимого: платформа не подключена, идёт вход или загрузка.
   // У платформы с входом (SoundCloud, VK) своя кнопка, в «Все треки» кнопки обеих, у остальных пока «Скоро».
@@ -1125,6 +1161,7 @@
   const emptyHtml = () => `<div class="empty">${L('Nothing here yet.')}</div>`;
 
   function renderContent() {
+    closeTrackMenu();
     const el = $('content');
     const data = DATA[state.platform];
     const q = state.query;
@@ -1521,18 +1558,33 @@
       </div>`;
   }
 
+  // свободный выбор цвета: плитка с системной палитрой и поле для кода (#RRGGBB, #RGB или rgb(255, 0, 128))
+  const COLOR_KEYS = { tint: 'tint', text: 'textColor', bg: 'bgColor', outline: 'outlineColor' };
+  const customTile = (attr) => {
+    const cur = settings[COLOR_KEYS[attr]];
+    const on = isHexColor(cur);
+    return `<label class="swatch custom ${on ? 'sel' : ''}" title="${esc(L('Custom color'))}" style="${on ? 'background:' + cur : ''}"><input type="color" data-cc="${attr}" value="${on ? cur : '#808080'}" aria-label="${esc(L('Custom color'))}"></label>`;
+  };
+  const customRow = (attr) => {
+    const cur = settings[COLOR_KEYS[attr]];
+    return `<div class="hex-row"><input type="text" class="hex-input" data-hex="${attr}" value="${isHexColor(cur) ? cur.toUpperCase() : ''}" placeholder="#RRGGBB  /  rgb(255, 0, 128)" maxlength="40" spellcheck="false" autocomplete="off" aria-label="${esc(L('Color code'))}"></div>`;
+  };
+
   function tintControls() {
     const tint = TINTS.find((p) => p.id === settings.tint);
+    const customTint = isHexColor(settings.tint);
     return `
       <div class="swatches">
         <button class="swatch none ${settings.tint ? '' : 'sel'}" data-tint="none" title="${L('No color')}" aria-label="${L('No color')}"></button>
         ${TINTS.map((p) => `
           <button class="swatch ${settings.tint === p.id ? 'sel' : ''}" data-tint="${p.id}"
                   style="background:${tintColor(p)}" title="${p.name}" aria-label="${p.name}"></button>`).join('')}
+        ${customTile('tint')}
       </div>
-      <div class="swatch-name">${tint ? tint.name : L('No color')}</div>
-      ${satRow('satRange', 'satVal', settings.sat, tint, !!tint)}
-      <div class="sat-hint">${tint ? '' : L('Pick a color to adjust its saturation.')}</div>`;
+      <div class="swatch-name">${customTint ? settings.tint.toUpperCase() : tint ? tint.name : L('No color')}</div>
+      ${customRow('tint')}
+      ${satRow('satRange', 'satVal', settings.sat, tint, !!(tint || customTint))}
+      <div class="sat-hint">${tint || customTint ? '' : L('Pick a color to adjust its saturation.')}</div>`;
   }
 
   function textControls() {
@@ -1546,10 +1598,12 @@
         ${TINTS.map((p) => `
           <button class="swatch ${settings.textColor === p.id ? 'sel' : ''}" data-text="${p.id}"
                   style="background:${textHue(p)}" title="${p.name}" aria-label="${p.name}"></button>`).join('')}
+        ${customTile('text')}
       </div>
       <div class="swatch-name" id="textName">${textName()}</div>
+      ${customRow('text')}
       ${satRow('textSatRange', 'textSatVal', settings.textSat, hueP, !!hueP)}
-      <div class="sat-hint">${hueP ? '' : L('Saturation can be adjusted for colored text.')}</div>`;
+      <div class="sat-hint">${hueP ? '' : isHexColor(settings.textColor) ? L('A custom color is used exactly as entered.') : L('Saturation can be adjusted for colored text.')}</div>`;
   }
 
   // плитки выбора цвета: авто, белый, чёрный и 20 оттенков (для фона и обводки)
@@ -1559,14 +1613,15 @@
       <button class="swatch ${current === 'white' ? 'sel' : ''}" data-${attr}="white" title="${L('White')}" aria-label="${L('White')}" style="background:#ffffff"></button>
       <button class="swatch ${current === 'black' ? 'sel' : ''}" data-${attr}="black" title="${L('Black')}" aria-label="${L('Black')}" style="background:#000000"></button>
       ${TINTS.map((p) => `<button class="swatch ${current === p.id ? 'sel' : ''}" data-${attr}="${p.id}" style="background:${hsl(p.h, 100, 50)}" title="${p.name}" aria-label="${p.name}"></button>`).join('')}
+      ${customTile(attr)}
     </div>`;
-  const colorName = (c) => (c === 'auto' ? L('Auto') : TEXT_FIXED[c] ? TEXT_FIXED[c].name : (TINTS.find((x) => x.id === c) || {}).name);
+  const colorName = (c) => (c === 'auto' ? L('Auto') : isHexColor(c) ? c.toUpperCase() : TEXT_FIXED[c] ? TEXT_FIXED[c].name : (TINTS.find((x) => x.id === c) || {}).name);
 
-  const bgControls = () => colorTiles('bg', settings.bgColor) + `<div class="swatch-name">${colorName(settings.bgColor)}</div>`
-    + sliderRow('bgSat', L('Saturation'), settings.bgSat, 0, 100, '%');
+  const bgControls = () => colorTiles('bg', settings.bgColor) + `<div class="swatch-name">${colorName(settings.bgColor)}</div>` + customRow('bg')
+    + (isHexColor(settings.bgColor) ? `<div class="sat-hint">${L('A custom color is used exactly as entered.')}</div>` : sliderRow('bgSat', L('Saturation'), settings.bgSat, 0, 100, '%'));
 
   // цвет обводки лежит рядом с остальными цветами (раздел «Theme and colors»)
-  const outlineColorControls = () => colorTiles('outline', settings.outlineColor) + `<div class="swatch-name">${colorName(settings.outlineColor)}</div>`;
+  const outlineColorControls = () => colorTiles('outline', settings.outlineColor) + `<div class="swatch-name">${colorName(settings.outlineColor)}</div>` + customRow('outline');
 
   const outlineControls = () => sliderRow('textOutline', L('Outline strength'), settings.textOutline, 0, 100, '%')
     + `<div class="btn-row" style="margin-top:14px"><button class="btn ${settings.outlineStyle === 'soft' ? 'primary' : ''}" data-ol-style="soft">${L('Soft')}</button><button class="btn ${settings.outlineStyle === 'sharp' ? 'primary' : ''}" data-ol-style="sharp">${L('Sharp')}</button></div>`
@@ -2371,10 +2426,14 @@
     // ссылкой становится только сам текст (не вся строка), с подсказкой при наведении; пустое место справа ничего не открывает
     const canTrack = !!(t && (t.scId || t.vkId || t.ytId));
     const canArtist = !!(t && artistAttrs(t) && !player.error && !player.loading);
-    $('npTitle').innerHTML = (src && mode === 'title' ? srcIcon(src, 'sm') : '')
+    const titleHtml = (src && mode === 'title' ? srcIcon(src, 'sm') : '')
       + `<span class="t-text${canTrack ? ' lnk' : ''}"${canTrack ? ` title="${esc(L('Open track page'))}"` : ''}>${esc(t ? t.title : L('Nothing is playing'))}</span>`;
     const artistText = !t ? L('Pick a track') : player.error ? player.error : player.loading ? L('Loading…') : t.artist;
-    $('npArtist').innerHTML = canArtist ? `<span class="lnk" title="${esc(L('Open artist page'))}">${esc(artistText)}</span>` : esc(artistText);
+    const artistHtml = canArtist ? `<span class="lnk" title="${esc(L('Open artist page'))}">${esc(artistText)}</span>` : esc(artistText);
+    // текст трогаем только если он изменился: иначе бегущая строка перезапускалась бы при каждом обновлении плеера
+    const npT = $('npTitle'), npA = $('npArtist');
+    if (npT._h !== titleHtml) { npT._h = titleHtml; npT.innerHTML = titleHtml; fitMarquee(npT); }
+    if (npA._h !== artistHtml) { npA._h = artistHtml; npA.innerHTML = artistHtml; fitMarquee(npA); }
     $('npSrc').setAttribute('style', src ? srcVars(src) : '');
     $('npSrc').innerHTML = src && mode === 'label' ? `<i class="dot"></i>${esc(src.name)}` : '';
     $('playBtn').innerHTML = player.playing ? I.pause : I.play;
@@ -2535,6 +2594,81 @@
     player.qgen++;
     renderQueue(true);
   }
+
+  // «Add to queue»: трек встаёт в конец текущей очереди (копией, чтобы один трек мог стоять в очереди дважды).
+  // Если ничего не играет, очередь начинается с этого трека.
+  function addToQueue(t) {
+    if (!t || locked(t)) return;
+    if (!current()) {
+      player.listKey = '';
+      player.entity = '';
+      player.advance = false;
+      player.queue = [t];
+      player.qgen++;
+      player.history = [];
+      player.index = -1;
+      playAt(0, false);
+      return;
+    }
+    player.queue.push({ ...t });
+    player.qgen++;
+    renderQueue();
+  }
+
+  /* ---------- Меню «⋯» у трека в списках ---------- */
+  let trackMenu = null;
+  const closeTrackMenu = () => {
+    if (!trackMenu) return;
+    trackMenu.el.remove();
+    trackMenu.btn.classList.remove('open');
+    trackMenu = null;
+  };
+  function openTrackMenu(btn) {
+    const row = btn.closest('[data-track]');
+    const t = row && rowTracks.get(Number(row.dataset.track));
+    const same = trackMenu && trackMenu.btn === btn;
+    closeTrackMenu();
+    if (!t || same) return;   // повторное нажатие на ту же кнопку закрывает меню
+    const el = document.createElement('div');
+    el.className = 'track-menu';
+    el.setAttribute('role', 'menu');
+    const build = () => {
+      const liked = isLiked(t);
+      el.innerHTML = `
+        <button type="button" role="menuitem" data-tm="queue" ${locked(t) ? 'disabled' : ''}>${I.queue}<span>${esc(L('Add to queue'))}</span></button>
+        <button type="button" role="menuitem" data-tm="like" class="${liked ? 'on' : ''}">${liked ? I.heartFill : I.heart}<span>${esc(L(liked ? 'Liked' : 'Like'))}</span></button>`;
+    };
+    build();
+    el.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-tm]');
+      if (!b || b.disabled) return;
+      e.stopPropagation();
+      if (b.dataset.tm === 'queue') {
+        addToQueue(t);
+        b.querySelector('span').textContent = L('Added to queue');
+        b.disabled = true;
+        setTimeout(() => { if (trackMenu && trackMenu.el === el) closeTrackMenu(); }, 650);
+      } else {
+        toggleLike(t);
+        build();
+        updatePlayer();
+        if (state.view || curTab() === 'liked') renderContent();   // как у сердечка в плеере: список лайков и страница трека сразу меняются
+      }
+    });
+    document.body.appendChild(el);
+    btn.classList.add('open');
+    trackMenu = { el, btn };
+    // под кнопкой, по её правому краю; если снизу нет места, то над ней
+    const r = btn.getBoundingClientRect();
+    const w = el.offsetWidth, h = el.offsetHeight;
+    el.style.left = Math.max(8, Math.min(window.innerWidth - w - 8, r.right - w)) + 'px';
+    el.style.top = (r.bottom + 6 + h > window.innerHeight - 8 ? Math.max(8, r.top - h - 6) : r.bottom + 6) + 'px';
+  }
+  document.addEventListener('mousedown', (e) => { if (trackMenu && !trackMenu.el.contains(e.target) && !trackMenu.btn.contains(e.target)) closeTrackMenu(); }, true);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && trackMenu) { closeTrackMenu(); e.stopPropagation(); } }, true);
+  window.addEventListener('blur', closeTrackMenu);
+  window.addEventListener('resize', closeTrackMenu);
+  document.addEventListener('scroll', (e) => { if (trackMenu && !trackMenu.el.contains(e.target)) closeTrackMenu(); }, true);
 
   function queueDropTarget(e) {
     const it = e.target.closest ? e.target.closest('.q-item') : null;
@@ -4036,6 +4170,8 @@
   });
   $('content').addEventListener('click', (e) => {
     if (queueClick(e)) return;
+    const tmBtn = e.target.closest('.t-more');
+    if (tmBtn) { e.stopPropagation(); return openTrackMenu(tmBtn); }   // «⋯» не запускает воспроизведение строки
     const scBtn = e.target.closest('[data-sc]');
     if (scBtn) return scAction(scBtn.dataset.sc, scBtn.dataset.svc);
     const sf = e.target.closest('[data-sf]');
@@ -4075,6 +4211,25 @@
     const t = current();
     if (t && (t.scId || t.vkId || t.ytId)) openEntity('track', { src: t.source, id: t.scId, url: t.url }, null, npPlatform(t));
   };
+  // Бегущая строка: если название или исполнитель не влезают в нижний плеер, текст плавно едет до конца и обратно
+  function fitMarquee(el) {
+    if (!el) return;
+    // у названия сам текст лежит в .t-text (его края режет overflow), у исполнителя в самой строке
+    const box = el.querySelector(':scope > .t-text') || el;
+    const old = box.querySelector(':scope > .marq-in');
+    if (old) box.innerHTML = old.innerHTML;
+    box.classList.remove('marq');
+    if (box.scrollWidth <= box.clientWidth + 1) return;
+    box.innerHTML = `<span class="marq-in">${box.innerHTML}</span>`;
+    const d = box.firstChild.offsetWidth - box.clientWidth + 18;   // 18px: запас под затухающий край
+    if (d <= 0) { box.innerHTML = box.firstChild.innerHTML; return; }
+    box.style.setProperty('--marq-d', d + 'px');
+    box.style.setProperty('--marq-t', Math.max(6, d / 28 + 3).toFixed(1) + 's');
+    box.classList.add('marq');
+  }
+  const fitNowPlaying = () => { fitMarquee($('npTitle')); fitMarquee($('npArtist')); };
+  if (window.ResizeObserver) { const ro = new ResizeObserver(fitNowPlaying); ro.observe($('npTitle')); ro.observe($('npArtist')); }   // окно или плеер изменили ширину: пересчитываем
+
   $('npTitle').addEventListener('click', (e) => { if (e.target.closest('.lnk')) openNowPlaying(); });
   $('npCover').addEventListener('click', () => { if ($('npCover').classList.contains('lnk')) openNowPlaying(); });
   $('npArtist').addEventListener('click', (e) => {
@@ -4112,6 +4267,17 @@
 
   // масштаб применяем по отпусканию ползунка: если менять его на лету, ползунок «убегает» из-под курсора
   $('modalBody').addEventListener('change', (e) => {
+    const cc = e.target.dataset && e.target.dataset.cc;
+    if (cc) return setCustomColor(cc, e.target.value.toLowerCase(), false);
+    const hx = e.target.dataset && e.target.dataset.hex;
+    if (hx) {
+      const hex = parseColor(e.target.value);
+      if (hex) return setCustomColor(hx, hex, false);
+      e.target.classList.add('bad');   // непонятный код: подсвечиваем и возвращаем прежнее значение
+      const cur = settings[COLOR_KEYS[hx]];
+      setTimeout(() => { e.target.classList.remove('bad'); e.target.value = isHexColor(cur) ? cur.toUpperCase() : ''; }, 900);
+      return;
+    }
     if (e.target.id !== 'scaleRange') return;
     settings.uiScale = Number(e.target.value);
     saveSettings();
@@ -4220,7 +4386,29 @@
     updatePlayer();
   });
 
+  // свой цвет: пока тянут по палитре, тема меняется на лету (без пересборки настроек, чтобы палитра не закрывалась),
+  // а когда выбор подтверждён или код введён в поле, всё пересобирается как после выбора готовой плитки
+  function setCustomColor(attr, hex, live) {
+    settings[COLOR_KEYS[attr]] = hex;
+    saveSettings();
+    applyTheme();
+    if (live) {
+      const tile = document.querySelector(`[data-cc="${attr}"]`);
+      if (tile) {
+        const lab = tile.parentElement;
+        lab.style.background = hex;
+        lab.parentElement.querySelectorAll('.swatch').forEach((x) => x.classList.toggle('sel', x === lab));
+      }
+      const txt = document.querySelector(`[data-hex="${attr}"]`);
+      if (txt) txt.value = hex.toUpperCase();
+      return;
+    }
+    renderBody(true);
+    renderContent();
+    updatePlayer();
+  }
   $('modalBody').addEventListener('input', (e) => {
+    if (e.target.dataset && e.target.dataset.cc) return setCustomColor(e.target.dataset.cc, e.target.value.toLowerCase(), true);
     const id = e.target.id;
     if (id === 'themeRange') settings.theme = THEME_ORDER[Number(e.target.value)];
     else if (id === 'satRange') settings.sat = Number(e.target.value);
